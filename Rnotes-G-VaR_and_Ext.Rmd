@@ -1,0 +1,528 @@
+---
+title: "Discussion Notes on G-VaR and Extension"
+author: "Yifan Li"
+date: "01/07/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preparation 
+
+## Functions and packages
+
+```{r}
+source("JointWork-GframeARCH.R")
+source("GframeStatsPoint.R")
+source("functions-choose-gr-size.R")
+```
+
+```{r}
+library(quantmod)
+library(reshape2)
+library(ggplot2)
+```
+
+
+## Data preparation
+
+```{r}
+#load the real-world data: S&P500
+#with typical volatility uncertainty 
+startdate <- "1971-02-08" #avoid the holidays (a minor issue here)
+#enddate <- "2019-01-01"
+enddate <- "2021-06-30" #avoid the holidays
+#30 years 
+scale.f <- function(x) x*100
+#try higher frequency to have more points
+#North American Market: S&P500
+#getSymbols("^GSPC", from=startdate, to=enddate, by=60*60)
+getSymbols("^GSPC", from=startdate, to=enddate)
+#head(GSPC)
+gspc <- GSPC[,"GSPC.Close"] #gspc <- Cl(GSPC)
+logReturn.gspc.old <- diff(log(gspc)) 
+logReturn.gspc <- logReturn.gspc.old[-1]
+#plot(logReturn.gspc)
+plot(logReturn.gspc["1990/2021"])
+logReturn.gspc.num <- as.numeric(logReturn.gspc)
+any(is.na(gspc))
+logReturn.gspc.sc <- scale.f(logReturn.gspc) #after scaling
+logReturn.gspc.num.sc <- as.numeric(logReturn.gspc.sc)
+```
+
+```{r}
+#NASDAQ composite index
+getSymbols("^IXIC", from = "1971-02-08", to = "2021-06-30")
+#head(GSPC)
+ixic <- IXIC[,"IXIC.Close"] #ixic <- Cl(GSPC)
+logReturn.ixic.old <- diff(log(ixic))
+logReturn.ixic <- logReturn.ixic.old[-1]
+#plot(logReturn.ixic)
+plot(logReturn.ixic["2018/2021"])
+logReturn.ixic.num <- as.numeric(logReturn.ixic)
+any(is.na(ixic))
+logReturn.ixic.sc <- scale.f(logReturn.ixic) #after scaling
+logReturn.ixic.num.sc <- as.numeric(logReturn.ixic.sc)
+```
+
+```{r}
+#Chinese Market: HSI
+startdate <- "1990-01-03" #avoid the holidays (a minor issue here)
+#enddate <- "2019-01-01"
+enddate <- "2021-05-21" #avoid the holidays
+getSymbols("^HSI", from=startdate, to=enddate)
+hsi <- HSI[,"HSI.Close"] #gspc <- Cl(GSPC)
+#there are NAs in hsi,
+na.ind <- which(is.na(hsi))
+#any(is.na(hsi))
+#hsi[na.ind]
+#we can see that the missing values are from the holidays
+#so far we simply remove the missing values
+hsi.new <- na.omit(hsi)
+#we may fill the NAs by interpolation in the future
+#to compare with other markets (to have the same dimension)
+logReturn.hsi.old <- diff(log(hsi.new))
+logReturn.hsi <- logReturn.hsi.old[-1]
+logReturn.hsi.num <- as.numeric(logReturn.hsi)
+logReturn.hsi.sc <- scale.f(logReturn.hsi)
+logReturn.hsi.num.sc <- scale.f(logReturn.hsi.num)
+```
+
+# Implementation procedure 
+
+Check more details in Notes-G-VaR. 
+
+```{r}
+#qGnorm is associated with the upper cdf
+G.VaR <- function(a, sdl, sdr){
+  -qGnorm(a, sdl, sdr)
+}
+```
+
+```{r}
+qSGnorm <- function(p, sdl, sdr){
+  (p<1/2)*sdr*qnorm(p) + (p>=1/2)*sdl*qnorm(p)
+}
+
+SG.VaR <- function(a, sdl, sdr){
+  -qSGnorm(a, sdl, sdr)
+}
+```
+
+```{r}
+cummean <- function(x){
+  cumsum(x)/seq_along(x)
+}
+```
+
+
+# Initial analysis
+
+```{r}
+#violation rate using the first W+3000 points 
+lr.seq <- logReturn.gspc.num.sc #the whole data sequence
+lr.seq.sq <- lr.seq^2
+w <- 1e3 #historical window size
+w.add <- 8e3 #additional data size
+ind.ini <- seq_len(w+w.add) #index of initial sample
+lr.seq0 <- lr.seq[ind.ini] #the initial sample to calibrate w0 
+lr.seq.sq0 <- lr.seq.sq[ind.ini]
+```
+
+```{r}
+acf(lr.seq0) #first AR order
+```
+
+```{r}
+#AR filtering 
+#AR estimation
+ar.re <- ar(lr.seq, order.max = 1)
+#print(ar.re)
+b0 <- ar.re$x.mean
+b1 <- ar.re$ar
+x.seq <- ar.re$resid
+x2.seq <- x.seq^2
+```
+
+```{r}
+plotl(x.seq[1e3+seq_len(3e3)])
+```
+
+
+# The choice of estimation window size 
+
+## Calibration using Condition 5.1 (ref: G-VaR)
+
+```{r}
+#VaR.G
+#to match the unconditional violation rate 
+```
+
+### With AR filter
+
+```{r}
+#improve it with parallel computing 
+a1 <- 0.01
+w0 <- 400 #estimation window size to be calibrated
+#w0 increases with alpha
+step <- 100
+ind.viol.seqar <- G.VaR.seq <- numeric(w.add)
+sd.intvl.mat <- matrix(NA, ncol = 2, nrow = w.add)
+t.b.seq <- seq_len(w.add)+w-1
+for (i in seq_len(w.add)){
+  t.b <- t.b.seq[i]
+  lr.now <- lr.seq[t.b]
+  #filter the historical data using AR(1)
+  lr.seq.sub <- lr.seq[(t.b-w+1):t.b]
+  
+  ar.re <- ar(lr.seq.sub, order.max = 1, demean = FALSE, 
+              aic = FALSE) #no mean is estimated
+  #print(ar.re)
+  b0 <- ar.re$x.mean
+  b1 <- ar.re$ar
+  x.seq <- ar.re$resid[-1]
+  #estimate the sd.interval
+  x2.seq <- x.seq^2
+  gr.var <- get.meanseq.ovlp(x2.seq, n.guess = w0, step = step)
+  var.intvl <- c(min(gr.var), max(gr.var))
+  sd.intvl <- sqrt(var.intvl)
+  #sd.intvl.mat[i,] <- sd.intvl
+  G.VaR.val <- -b0 - b1*lr.now + G.VaR(a1, sdl = sd.intvl[1], sdr = sd.intvl[2])
+  #G.VaR.seq[i] <- G.VaR.val
+  ind.viol.seqar[i] <- as.numeric(lr.seq[t.b+1] < -G.VaR.val)
+}
+viol.rate <- mean(ind.viol.seqar)
+viol.rate
+```
+
+```{r}
+viol.rate.cum <- cummean(ind.viol.seqar)
+plot(viol.rate.cum, type = "l", xlab = "n-W", ylab = "violation rate")
+abline(h=0.01, col=2)
+abline(v=3e3, col="blue", lty=2)
+#check with the results in the paper
+```
+
+```{r}
+#let n further increases
+#to check whether the violation rate converges
+
+#extend the violation rate sequence 
+```
+
+
+### Without AR filter
+
+```{r}
+#improve it with parallel computing 
+a1 <- 0.01
+w0 <- 350 #estimation window size to be calibrated
+step <- 1
+ind.viol.seq <- G.VaR.seq <- numeric(w.add)
+sd.intvl.mat <- matrix(NA, ncol = 2, nrow = w.add)
+t.b.seq <- seq_len(w.add)+w-1
+for (i in seq_len(w.add)){
+  #estimate the sd.interval
+  t.b <- t.b.seq[i]
+  x2.seq <- lr.seq.sq0[(t.b-w+1):t.b]
+  gr.var <- get.meanseq.ovlp(x2.seq, n.guess = w0, step = step)
+  var.intvl <- c(min(gr.var), max(gr.var))
+  sd.intvl <- sqrt(var.intvl)
+  #sd.intvl.mat[i,] <- sd.intvl
+  G.VaR.val <- G.VaR(a1, sdl = sd.intvl[1], sdr = sd.intvl[2])
+  #G.VaR.seq[i] <- G.VaR.val
+  ind.viol.seq[i] <- as.numeric(lr.seq0[t.b+1] < -G.VaR.val)
+}
+viol.rate <- mean(ind.viol.seq)
+viol.rate
+```
+
+```{r}
+viol.rate.cum <- cummean(ind.viol.seq)
+plotl(viol.rate.cum)
+#check with the results in the paper
+```
+
+```{r}
+#let n further increases
+#to check whether the violation rate converges
+
+#extend the violation rate sequence 
+```
+
+
+
+## Data-driven rule (e.g. BIC)
+
+### G.VaR vs SG.VaR
+
+```{r}
+#check the stability of the selection method under different historical window size 
+
+```
+
+```{r}
+f.numeric0.to.0 <- function(x){
+  if(length(x)==0){
+    0
+  } else {
+    x
+  }
+}
+
+```
+
+```{r}
+f.numeric0.to.0(numeric(0))
+```
+
+
+```{r}
+#improve it with parallel computing 
+w.d <- 2e3 #to get more stable estimation of the group size
+a1 <- 0.01
+#w0 <- 350 #estimation window size to be calibrated
+#step <- 10
+w.add <- 8e3
+ind.viol.seq.g <- ind.viol.seq.sg  <- G.VaR.seq <- SG.VaR.seq <- numeric(w.add)
+var.intvl.mat <- matrix(NA, ncol = 2, nrow = w.add)
+t.b.seq <- seq_len(w.add)+w.d-1
+n.seq1 <- seq(10, w.d/2, 10)
+for (i in seq_len(w.add)){
+  t.b <- t.b.seq[i]
+  lr.now <- lr.seq[t.b]
+  #filter the historical data using AR(1)
+  lr.seq.sub <- lr.seq[(t.b-w.d+1):t.b]
+  #change it to mean estimated
+  ar.re <- ar(lr.seq.sub, order.max = 1, demean = TRUE, aic = TRUE)
+  #use AIC to select
+  #order.ar <- ar.re$order
+  b0 <- ar.re$x.mean
+  b1 <- f.numeric0.to.0(ar.re$ar)
+  #lr.next <- b0
+  #print(ar.re)
+  #if ar(1), delete the first one
+  x.seq <- ar.re$resid[-1]
+  #estimate the sd.interval
+  x2.seq <- x.seq^2
+  #choose w0.opt
+  w0.opt.re <- choose.gr.size.onepath(x.seq, n.seq = n.seq1, plot.ind = FALSE, 
+                                   f.obj = f.BIC, print.re.ind = FALSE)
+  w0.opt <- w0.opt.re$n.opt
+  #gr.var <- get.meanseq.ovlp(x2.seq, n.guess = w0.opt, step = step)
+  gr.var <- max.mean(x2.seq, n.guess = w0.opt)
+  var.intvl <- c(min(gr.var), max(gr.var))
+  sd.intvl <- sqrt(var.intvl)
+  #var.intvl.mat[i,] <- var.intvl
+  G.VaR.val <- -b0 - b1*lr.now + G.VaR(a1, sdl = sd.intvl[1], sdr = sd.intvl[2])
+  SG.VaR.val <- -b0 - b1*lr.now + SG.VaR(a1, sdl = sd.intvl[1], sdr = sd.intvl[2])
+  G.VaR.seq[i] <- G.VaR.val
+  SG.VaR.seq[i] <- SG.VaR.val
+  ind.viol.seq.g[i] <- as.numeric(lr.seq[t.b+1] < -G.VaR.val)
+  ind.viol.seq.sg[i] <- as.numeric(lr.seq[t.b+1] < -SG.VaR.val)
+}
+
+viol.rate.g <- mean(ind.viol.seq.g)
+viol.rate.g
+viol.rate.sg <- mean(ind.viol.seq.sg)
+viol.rate.sg
+#store sd.intvl
+```
+
+
+```{r}
+#my guess, G.VaR tends to be more conservative
+#compare G.VaR with SG.VaR
+ind.viol.dat <- data.frame(ind.viol.g = ind.viol.seq.g, 
+                           ind.viol.sg = ind.viol.seq.sg)
+viol.rate.cum.comp <- apply(ind.viol.dat, 2, cummean)
+
+matplot(viol.rate.cum.comp, type = "l")
+
+
+re1.comp <- list(ind.viol.dat = ind.viol.dat, 
+                 viol.rate.cum.comp = viol.rate.cum.comp)
+```
+
+```{r}
+#make it into ggplot
+#matplot of ggplot
+#viol.rate.cum.dat1 <- as.data.frame(viol.rate.cum.comp)
+
+```
+
+So far we can see the violation rate of SG-VaR tends to be closer to the nominal rate compared with the G-normal (under the data-driven estimation window size.) It indeed makes sense because the BIC criterion is essentially based on the assumption of the underlying volatility dynamic can be approximated by piecewise constant local variance. Under the uncertainty in the switching rule of the variance level, when we look at the extreme behavior of the next time point, it is closer to the VaR associated with the semi-$G$-normal. 
+
+```{r}
+#check the local violation rate (use get.meanseq.ovlp)
+viol.rate.loc.comp <- apply(ind.viol.dat, 2,
+                            function(x) get.meanseq.ovlp(x, n.guess = 1e3, step = 1))
+
+# viol.rate.loc.comp <- apply(ind.viol.dat, 2,
+#                             function(x) get.meanseq.novlp(x, n.guess = 5e2))
+
+matplot(viol.rate.loc.comp, type = "l")
+abline(h= a1, lty=3, col= rgb(0.59,0.29,0.00,alpha = 0.6))
+#we can also compare it with GBM
+```
+
+The local violation rate still shows dependency that has not been captured by the current model. (when we try non-overlapping groups, not overlapping one, because the latter automatically introduces dependency.)
+
+However, we can see that it still shows that in most cases, the local violation rate is smaller than the nominal level. 
+
+```{r}
+plotl(lr.seq[w+seq_len(w.add)-1])
+abline(v=7000, lty=2, col=2)
+```
+
+### Try different alpha
+
+```{r}
+#improve it with parallel computing 
+w.d <- 2e3 #data-driven rule
+a1 <- 0.05
+#w0 <- 350 #estimation window size to be calibrated
+#step <- 10
+#write it into a function
+ind.viol.seq.g <- ind.viol.seq.sg  <- G.VaR.seq <- SG.VaR.seq <- numeric(w.add)
+sd.intvl.mat <- matrix(NA, ncol = 2, nrow = w.add)
+t.b.seq <- seq_len(w.add)+w.d-1
+n.seq1 <- seq(10, w.d/2, 10)
+for (i in seq_len(w.add)){
+  t.b <- t.b.seq[i]
+  lr.now <- lr.seq[t.b]
+  #filter the historical data using AR(1)
+  lr.seq.sub <- lr.seq[(t.b-w.d+1):t.b]
+  #change it to mean estimated
+  ar.re <- ar(lr.seq.sub, order.max = 1, demean = TRUE, aic = FALSE)
+  #print(ar.re)
+  b0 <- ar.re$x.mean
+  b1 <- ar.re$ar
+  x.seq <- ar.re$resid[-1]
+  #estimate the sd.interval
+  x2.seq <- x.seq^2
+  #choose w0.opt
+  w0.opt.re <- choose.gr.size.onepath(x.seq, n.seq = n.seq1, plot.ind = FALSE, 
+                                   f.obj = f.BIC)
+  w0.opt <- w0.opt.re$n.opt
+  #gr.var <- get.meanseq.ovlp(x2.seq, n.guess = w0.opt, step = step)
+  gr.var <- max.mean(x2.seq, n.guess = w0.opt)
+  var.intvl <- c(min(gr.var), max(gr.var))
+  sd.intvl <- sqrt(var.intvl)
+  #sd.intvl.mat[i,] <- sd.intvl
+  G.VaR.val <- -b0 - b1*lr.now + G.VaR(a1, sdl = sd.intvl[1], sdr = sd.intvl[2])
+  SG.VaR.val <- -b0 - b1*lr.now + SG.VaR(a1, sdl = sd.intvl[1], sdr = sd.intvl[2])
+  #G.VaR.seq[i] <- G.VaR.val
+  ind.viol.seq.g[i] <- as.numeric(lr.seq[t.b+1] < -G.VaR.val)
+  ind.viol.seq.sg[i] <- as.numeric(lr.seq[t.b+1] < -SG.VaR.val)
+}
+viol.rate.g <- mean(ind.viol.seq.g)
+viol.rate.g
+viol.rate.sg <- mean(ind.viol.seq.sg)
+viol.rate.sg
+```
+
+
+```{r}
+#my guess, G.VaR tends to be more conservative
+#compare G.VaR with SG.VaR
+viol.rate.mat <- cbind(ind.viol.seq.g, ind.viol.seq.sg)
+
+viol.rate.cum.g <- cummean(ind.viol.seq.g)
+#plot(viol.rate.cum.g, type = "l")
+viol.rate.cum.sg <- cummean(ind.viol.seq.sg)
+#plotl(viol.rate.cum.sg)
+
+viol.rate.cum.comp <- cbind(viol.rate.cum.g, viol.rate.cum.sg)
+matplot(viol.rate.cum.comp, type = "l")
+```
+
+
+```{r}
+re1.comp <- list(ind.viol.seq.g = ind.viol.seq.g, 
+                 ind.viol.seq.sg = ind.viol.seq.sg, 
+                 viol.rate.cum.comp = viol.rate.cum.comp)
+```
+
+```{r}
+#check local violation rate
+viol.rate.loc.comp <- apply(viol.rate.mat, 2,
+                            function(x) get.meanseq.ovlp(x, n.guess = 1e3, step = 1))
+# viol.rate.loc.comp <- apply(ind.viol.dat, 2,
+#                             function(x) get.meanseq.novlp(x, n.guess = 5e2))
+
+matplot(viol.rate.loc.comp, type = "l")
+abline(h= a1, lty=3, col= rgb(0.59,0.29,0.00,alpha = 0.6))
+#change it to time series object
+```
+
+
+# ARCH and GARCH design (for both G-VaR and Semi-G-VaR)
+
+```{r}
+#compute the sequence of variance intervals
+#improve it with parallel computing 
+w.d <- 2e3 #to get more stable estimation of the group size
+a1 <- 0.01
+#w0 <- 350 #estimation window size to be calibrated
+#step <- 10
+w.add <- 4e3 #use half of the original data size
+ind.viol.seq.g <- ind.viol.seq.sg  <- G.VaR.seq <- SG.VaR.seq <- numeric(w.add)
+var.intvl.mat <- matrix(NA, ncol = 2, nrow = w.add)
+t.b.seq <- seq_len(w.add)+w.d-1
+n.seq1 <- seq(10, w.d/2, 10)
+for (i in seq_len(w.add)){
+  t.b <- t.b.seq[i]
+  lr.now <- lr.seq[t.b]
+  #filter the historical data using AR(1)
+  lr.seq.sub <- lr.seq[(t.b-w.d+1):t.b]
+  #change it to mean estimated
+  ar.re <- ar(lr.seq.sub, order.max = 1, demean = TRUE, aic = TRUE)
+  #use AIC to select
+  #order.ar <- ar.re$order
+  b0 <- ar.re$x.mean
+  b1 <- f.numeric0.to.0(ar.re$ar)
+  #lr.next <- b0
+  #print(ar.re)
+  #if ar(1), delete the first one
+  x.seq <- ar.re$resid[-1]
+  #estimate the sd.interval
+  x2.seq <- x.seq^2
+  #choose w0.opt
+  w0.opt.re <- choose.gr.size.onepath(x.seq, n.seq = n.seq1, plot.ind = FALSE, 
+                                   f.obj = f.BIC, print.re.ind = FALSE)
+  w0.opt <- w0.opt.re$n.opt
+  #gr.var <- get.meanseq.ovlp(x2.seq, n.guess = w0.opt, step = step)
+  gr.var <- max.mean(x2.seq, n.guess = w0.opt)
+  var.intvl <- c(min(gr.var), max(gr.var))
+  sd.intvl <- sqrt(var.intvl)
+  var.intvl.mat[i,] <- var.intvl
+  G.VaR.val <- -b0 - b1*lr.now + G.VaR(a1, sdl = sd.intvl[1], sdr = sd.intvl[2])
+  SG.VaR.val <- -b0 - b1*lr.now + SG.VaR(a1, sdl = sd.intvl[1], sdr = sd.intvl[2])
+  G.VaR.seq[i] <- G.VaR.val
+  SG.VaR.seq[i] <- SG.VaR.val
+  ind.viol.seq.g[i] <- as.numeric(lr.seq[t.b+1] < -G.VaR.val)
+  ind.viol.seq.sg[i] <- as.numeric(lr.seq[t.b+1] < -SG.VaR.val)
+}
+
+viol.rate.g <- mean(ind.viol.seq.g)
+viol.rate.g
+viol.rate.sg <- mean(ind.viol.seq.sg)
+viol.rate.sg
+#store sd.intvl
+```
+
+```{r}
+#perform least square estimation 
+
+#try GARCH(1,1) setup for upper and lower variance 
+#theoretical consideration 
+
+matplot(var.intvl.mat, type = "l") 
+#the variance interval changes over time
+#also check the variance interval using fixed group size
+```
+
+

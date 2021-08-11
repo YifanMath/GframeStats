@@ -1,0 +1,784 @@
+---
+title: "Notes on the choice of group size"
+author: "Yifan Li"
+date: "21/06/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preparation 
+
+```{r}
+source("JointWork-GframeARCH.R")
+source("GframeStatsPoint.R")
+source("functions-choose-gr-size.R")
+```
+
+```{r}
+library(quantmod)
+library(reshape2)
+library(ggplot2)
+```
+
+
+```{r}
+#load the real-world data: S&P500
+#with typical volatility uncertainty 
+startdate <- "1990-01-03" #avoid the holidays (a minor issue here)
+#enddate <- "2019-01-01"
+enddate <- "2021-05-21" #avoid the holidays
+#30 years 
+scale.f <- function(x) x*10 
+#try higher frequency to have more points
+#North American Market: S&P500
+#getSymbols("^GSPC", from=startdate, to=enddate, by=60*60)
+getSymbols("^GSPC", from=startdate, to=enddate)
+#head(GSPC)
+gspc <- GSPC[,"GSPC.Close"] #gspc <- Cl(GSPC)
+logReturn.gspc.old <- diff(log(gspc))
+logReturn.gspc <- logReturn.gspc.old[-1]
+#plot(logReturn.gspc)
+plot(logReturn.gspc["2018/2021"])
+logReturn.gspc.num <- as.numeric(logReturn.gspc)
+any(is.na(gspc))
+logReturn.gspc.sc <- scale.f(logReturn.gspc) #after scaling
+logReturn.gspc.num.sc <- as.numeric(logReturn.gspc.sc)
+```
+
+```{r}
+#Chinese Market: HSI
+getSymbols("^HSI", from=startdate, to=enddate)
+hsi <- HSI[,"HSI.Close"] #gspc <- Cl(GSPC)
+#there are NAs in hsi,
+na.ind <- which(is.na(hsi))
+#any(is.na(hsi))
+#hsi[na.ind]
+#we can see that the missing values are from the holidays
+#so far we simply remove the missing values
+hsi.new <- na.omit(hsi)
+#we may fill the NAs by interpolation in the future
+#to compare with other markets (to have the same dimension)
+logReturn.hsi.old <- diff(log(hsi.new))
+logReturn.hsi <- logReturn.hsi.old[-1]
+logReturn.hsi.num <- as.numeric(logReturn.hsi)
+logReturn.hsi.sc <- scale.f(logReturn.hsi)
+logReturn.hsi.num.sc <- scale.f(logReturn.hsi.num)
+```
+
+```{r}
+getSymbols("^IXIC", from=startdate, to=enddate)
+#head(GSPC)
+ixic <- IXIC[,"IXIC.Close"] #ixic <- Cl(GSPC)
+logReturn.ixic.old <- diff(log(ixic))
+logReturn.ixic <- logReturn.ixic.old[-1]
+plot(logReturn.ixic)
+#plot(logReturn.ixic["2018/2021"])
+logReturn.ixic.num <- as.numeric(logReturn.ixic)
+any(is.na(ixic))
+logReturn.ixic.sc <- scale.f(logReturn.ixic) #after scaling
+logReturn.ixic.num.sc <- as.numeric(logReturn.ixic.sc)
+```
+
+
+# Simulation Study
+
+The goal of this section is to study the performance of the heuristic algorithm of choosing group size in an idealized situation: the dataset is indeed generated in a equal-size blocking way. We will see whether the algorithm can detect the true block size from the data: if it does work, it means it is in the right direction to do the detection so that it can be extended later on. Otherwise, it means the method cannot capture the blocking feature correctly. 
+
+## KS.test (novlp, attempts)
+
+```{r}
+#equal-block design with group size 200
+set.seed(123)
+N1 <- 2e3
+gr.size1 <- 2e2
+gr.num1 <- N1/gr.size1
+n.seq1 <- seq(20, N1/4, 5)
+z.ind1 <- sample(c(1,2,3), gr.num1, replace = TRUE, prob = c(3,2,1)/5)
+#plot(z.ind1, type = "l")
+
+# re.ks.unif <- choose.gr.size(f.noise.gen = function(N){ 
+#   noise.gen.eqblock(N, gr.size = gr.size1, sd.set = c(0.5, 1, 2), 
+#                     z.ind = z.ind1)
+#   }, 
+#   f.obj = function(dat) f.ks.unif(dat, gr.f = function(x) mean(x)), 
+#   N = N1, rep.time = 50, n.seq = n.seq1, 
+#   f.trans = function(x) x^2, save.ind = TRUE, name.char = "ks-unif-novlp1",
+#   print.re.ind = FALSE, ylab = "D/sqrt(num.gr)")
+
+#f.ks.unif: test statistic/sqrt(num.gr)
+
+re.ks.unif <- choose.gr.size(f.noise.gen = function(N){ 
+  noise.gen.eqblock(N, gr.size = gr.size1, sd.set = c(0.5, 1, 2), 
+                    z.ind = z.ind1)
+  }, 
+  f.obj = function(dat) f.ks.unif(dat, gr.f = function(x) sqrt(mean(x))), 
+  N = N1, rep.time = 50, n.seq = n.seq1, 
+  f.trans = function(x) x^2, save.ind = TRUE, name.char = "ks-unif-novlp1",
+  print.re.ind = FALSE, ylab = "D/sqrt(num.gr)")
+
+```
+
+The possible concerns on the KS.test can be found in (Notes-choose-gr-size.pdf). 
+
+## KS.test (ovlp, attempts)
+
+```{r}
+#check overlapping group if needed
+ep.seq <- noise.gen.eqblock(N1, gr.size = gr.size1, sd.set = c(0.5, 1, 2), 
+                    z.ind = z.ind1)
+
+re.ks.unif.ovlp1 <- choose.gr.size.onepath(ep.seq = ep.seq, 
+                             n.seq = n.seq1, 
+                             f.obj = function(dat) {
+                               f.ks.unif(dat, gr.f = function(x) sqrt(mean(x)))
+                               }, 
+                             f.trans = function(x) x^2, 
+                             novlp.ind=FALSE)
+
+re.ks.unif <- choose.gr.size(f.noise.gen = function(N){ 
+  noise.gen.eqblock(N, gr.size = gr.size1, sd.set = c(0.5, 1, 2), 
+                    z.ind = z.ind1)
+  }, 
+  f.obj = function(dat) f.ks.unif(dat, gr.f = function(x) sqrt(mean(x))), 
+  N = N1, rep.time = 50, n.seq = n.seq1, 
+  f.trans = function(x) x^2, save.ind = TRUE, name.char = "ks-unif-novlp1",
+  print.re.ind = FALSE, ylab = "D/sqrt(num.gr)", novlp.ind)
+
+
+```
+
+## Relative Entropy (related to KS.test)
+
+## AIC criterion
+
+### Equal-block piecewise constant sigma 
+
+```{r}
+#equal-block design with group size 200
+set.seed(123)
+N1 <- 2e3
+gr.size1 <- 2e2
+gr.num1 <- N1/gr.size1
+n.seq1 <- seq(20, N1/4, 5)
+z.ind1 <- sample(c(1,2,3), gr.num1, replace = TRUE, prob = c(3,2,1)/5)
+#plot(z.ind1, type = "l")
+
+re.AIC1 <- choose.gr.size(f.noise.gen = function(N){ 
+  noise.gen.eqblock(N, gr.size = gr.size1, sd.set = c(0.5, 1, 2), 
+                    z.ind = z.ind1)
+  }, 
+  f.obj = function(dat){f.AIC(dat, short.ind = FALSE)}, 
+  N = N1, rep.time = 1e2, n.seq = n.seq1, 
+  f.trans = function(x) x, name.char = "AICfull-200", save.ind = TRUE, 
+  ylab = "centered AIC")
+#save.ind = TRUE, it will save an image file on the current directory
+#it does not work very well compared with BIC
+```
+
+```{r}
+set.seed(123)
+N2 <- 2e3
+gr.size2 <- 250
+gr.num2 <- N2/gr.size2
+n.seq2 <- seq(20, N2/4, 5)
+z.ind2 <- sample(c(1,2,3), gr.num2, replace = TRUE, prob = c(3,2,1)/5)
+#plot(z.ind1, type = "l")
+
+re.AIC2 <- choose.gr.size(f.noise.gen = function(N){ 
+  noise.gen.eqblock(N, gr.size = gr.size2, sd.set = c(0.5, 1, 2), 
+                    z.ind = z.ind2)
+  }, f.obj = f.AIC, N = N2, rep.time = 1e2, n.seq = n.seq2, 
+  f.trans = function(x) x, save.ind = TRUE, name.char = "AICfull-250", 
+  ylab = "centered AIC")
+```
+(also check it on real dataset if needed.)
+
+## BIC criterion
+
+### Equal-block piecewise constant sigma 
+
+```{r}
+#equal-block design with group size 200
+set.seed(123)
+N1 <- 2e3
+gr.size1 <- 2e2
+gr.num1 <- N1/gr.size1
+n.seq1 <- seq(20, N1/4, 5)
+z.ind1 <- sample(c(1,2,3), gr.num1, replace = TRUE, prob = c(3,2,1)/5)
+#plot(z.ind1, type = "l")
+
+re.BIC1 <- choose.gr.size(f.noise.gen = function(N){ 
+  noise.gen.eqblock(N, gr.size = gr.size1, sd.set = c(0.5, 1, 2), 
+                    z.ind = z.ind1)
+  }, 
+  f.obj = function(dat){f.BIC(dat, short.ind = FALSE)}, 
+  N = N1, rep.time = 1e2, n.seq = n.seq1, 
+  f.trans = function(x) x, name.char = "BICfull-200", save.ind = TRUE)
+#save.ind = TRUE, it will save an image file on the current directory
+```
+
+```{r}
+set.seed(123)
+N2 <- 2e3
+gr.size2 <- 250
+gr.num2 <- N2/gr.size2
+n.seq2 <- seq(20, N2/4, 5)
+z.ind2 <- sample(c(1,2,3), gr.num2, replace = TRUE, prob = c(3,2,1)/5)
+#plot(z.ind1, type = "l")
+
+re.BIC2 <- choose.gr.size(f.noise.gen = function(N){ 
+  noise.gen.eqblock(N, gr.size = gr.size2, sd.set = c(0.5, 1, 2), 
+                    z.ind = z.ind2)
+  }, f.obj = f.BIC, N = N2, rep.time = 1e2, n.seq = n.seq2, 
+  f.trans = function(x) x, save.ind = TRUE, name.char = "BICfull-250")
+```
+
+```{r}
+set.seed(123)
+N2 <- 2e3
+gr.size2 <- 100
+gr.num2 <- N2/gr.size2
+n.seq2 <- seq(20, N2/4, 5)
+z.ind2 <- sample(c(1,2,3), gr.num2, replace = TRUE, prob = c(3,2,1)/5)
+#plot(z.ind1, type = "l")
+
+re.BIC3 <- choose.gr.size(f.noise.gen = function(N){ 
+  noise.gen.eqblock(N, gr.size = gr.size2, sd.set = c(0.5, 1, 2), 
+                    z.ind = z.ind2)
+  }, f.obj = f.BIC, N = N2, rep.time = 1e2, n.seq = n.seq2, 
+  f.trans = function(x) x, save.ind = TRUE, name.char = "BICfull-100")
+```
+
+### Equal-block piecewise constant sigma (random)
+
+```{r}
+#the sigma in each block is random
+set.seed(123)
+N2 <- 2e3
+gr.size2 <- 250
+gr.num2 <- N2/gr.size2
+n.seq2 <- seq(20, N2/4, 5)
+#z.ind2 <- sample(c(1,2,3), gr.num2, replace = TRUE, prob = c(3,2,1)/5)
+#plot(z.ind1, type = "l")
+
+re.BIC2.rand <- choose.gr.size(f.noise.gen = function(N){ 
+  noise.gen.eqblock(N, gr.size = gr.size2, sd.set = c(0.5, 1, 2), 
+                    z.ind = NULL)
+  }, f.obj = f.BIC, N = N2, rep.time = 1e2, n.seq = n.seq2, 
+  f.trans = function(x) x, save.ind = TRUE, name.char = "BICfull-250-rand")
+```
+
+```{r}
+#hist(re.BIC2.rand$n.opt.seq)
+#abline(v=gr.size2, col=2)
+```
+
+### Unequal-block 
+
+(Check the behavior of this method on unequal group size.)
+
+```{r}
+#testuncertainty 
+N2 <- 2e3
+gr.size2 <- 250
+gr.num2 <- N2/gr.size2
+n.seq2 <- seq(50, N2/4, 5)
+
+x.re <- rsemiGnorm(N2, gr.len.mean = gr.size2, rmaximal.k = rmaximal)
+w.seq <- x.re$w.seq
+plot(w.seq, type = "l")
+re.tku <- testUncertainty(w.seq, moment.num = 2, n.check = 200, n.max.prop = 1/4, n.step = 10, smooth.plot.test = TRUE)
+```
+
+```{r}
+set.seed(123)
+
+#check rmaximal
+#unequal group size
+re.BIC2.rand <- choose.gr.size(f.noise.gen = function(N){ 
+  x <- rsemiGnorm(N, gr.len.mean = gr.size2, rmaximal.k = rmaximal)
+  x$w.seq
+  }, f.obj = f.BIC, N = N2, rep.time = 1e2, n.seq = n.seq2, 
+  f.trans = function(x) x, save.ind = TRUE, name.char = "BICfull-250-uneq", 
+  center.val.mat = TRUE) 
+#center.val.mat = TRUE
+#for better visualization
+```
+
+```{r}
+hist(re.BIC2.rand$n.opt.seq, breaks = "scott")
+abline(v = gr.size2, col=2)
+```
+
+### Simulated SV
+
+(related to the discussion notes on Gframe-TS)
+
+#### Setup 
+
+```{r setup}
+N1 <- 2e3
+n.seq1 <- seq(5, N1/4, 10)
+set.seed(123)
+```
+
+#### No leverage
+
+```{r}
+#no leverage
+#re <- ar1.gen.sigdepn.noblock(N1, rho = -0.6, phi = 0.8, sig = 0.17, b.sc = 1.2)
+re <- ar1.gen.sigdepn.noblock(N1, bounded.var = FALSE, plot.ind = FALSE, 
+                          b.sc = 0.2, rho = 0, b.true = 0.7, phi = 0.5)
+sim.seq <- re$w.seq
+plot(sim.seq, type = "l")
+
+
+re <- choose.gr.size.onepath(sim.seq, 
+                             n.seq = n.seq1, 
+                             f.obj = f.BIC, 
+                             f.trans = function(x) x)
+re$n.opt
+```
+
+```{r}
+re.BIC.sv1 <- choose.gr.size(f.noise.gen = function(N){ 
+  x <- ar1.gen.sigdepn.noblock(N1, bounded.var = FALSE, plot.ind = FALSE, 
+                          b.sc = 0.2, rho = 0, b.true = 0.7, phi = 0.5)
+  x$w.seq
+  }, f.obj = f.BIC, N = N1, rep.time = 1e2, n.seq = n.seq1, 
+  f.trans = function(x) x, save.ind = FALSE, name.char = "BIC-sv", 
+  center.val.mat = TRUE) 
+```
+
+```{r}
+hist(re.BIC.sv1$n.opt.seq)
+#use an adaptive choice of group sizes (adapt to the current data sequence)
+```
+
+
+#### With leverage
+
+```{r}
+N1 <- 2e3
+n.seq1 <- seq(5, N1/4, 10)
+set.seed(123)
+#re <- ar1.gen.sigdepn.noblock(N1, rho = -0.6, phi = 0.8, sig = 0.17, b.sc = 1.2)
+re <- ar1.gen.sigdepn.noblock(N1, bounded.var = FALSE, plot.ind = FALSE, 
+                          b.sc = 0.2, rho = -0.6, b.true = 0.7, phi = 0.5)
+sim.seq <- re$w.seq
+plot(sim.seq, type = "l")
+
+
+re <- choose.gr.size.onepath(sim.seq, 
+                             n.seq = n.seq1, 
+                             f.obj = f.BIC, 
+                             f.trans = function(x) x)
+re$n.opt
+```
+
+```{r}
+re.BIC.sv2 <- choose.gr.size(f.noise.gen = function(N){ 
+  x <- ar1.gen.sigdepn.noblock(N1, bounded.var = FALSE, plot.ind = FALSE, 
+                          b.sc = 0.2, rho = -0.6, b.true = 0.7, phi = 0.5)
+  x$w.seq
+  }, f.obj = f.BIC, N = N1, rep.time = 1e2, n.seq = n.seq1, 
+  f.trans = function(x) x, save.ind = FALSE, name.char = "BIC-sv", 
+  center.val.mat = TRUE) 
+```
+
+```{r}
+hist(re.BIC.sv2$n.opt.seq, breaks = "scott")
+```
+
+### No-blocking
+
+```{r}
+N1 <- 5e3
+n.seq2 <- seq(5, 5e3, 5)
+
+re.noblock <- choose.gr.size(f.noise.gen = rnorm, f.obj = f.BIC, N = N1, 
+                             rep.time = 1e2, n.seq = n.seq1, 
+  f.trans = function(x) x, save.ind = FALSE, name.char = "BIC-no-block", 
+  center.val.mat = TRUE) 
+
+re.noblock <- choose.gr.size.onepath(rnorm(N1), f.obj = f.BIC, 
+                              n.seq = n.seq2, 
+  f.trans = function(x) x, save.ind = FALSE, name.char = "BIC-no-block") 
+#there is no-blocking structure here 
+#so the optimal one should be 5e3
+#it should keep decreasing
+```
+
+
+## Change-point detection 
+
+# Simulated GARCH 
+
+(also check GARCH(1,1))
+
+# Real-world dataset 
+
+```{r}
+N1 <- 5e3
+lr.seq <- logReturn.gspc.num.sc - mean(logReturn.gspc.num.sc)
+lr.seq1 <- lr.seq[seq_len(N1)]
+```
+
+
+## Test of uncertainty 
+
+```{r}
+plot(lr.seq1, type = "l")
+```
+
+```{r}
+re <- testUncertainty(lr.seq1, varphi = function(x) x^2, hist.bin = 60)
+#collect the points from smooth curve, then draw a histogram
+#also perform the test based on the smoothed values 
+```
+
+```{r}
+#check the distance to uniform 
+#relative entropy
+```
+
+## KS.test (attempts)
+
+```{r}
+n.seq1 <- seq(10, 5e2, 5)
+
+re <- choose.gr.size.onepath(lr.seq1, 
+                             n.seq = n.seq1, 
+                             f.obj = function(dat) {
+                               f.ks.unif(dat, gr.f = function(x) sqrt(mean(x)))
+                               }, 
+                             f.trans = function(x) x^2)
+re$n.opt
+#some of the values cannot show up (one reason is the rounding p-value is recorded as 0.)
+```
+
+Another important issue here is the test tends to show insignificance (or accept the null) as the number of measurements ($N/n$) decreases. This is reason why we have 
+$$
+V(n) = -\ln p_n,
+$$
+decreases as $n$ increases. 
+
+## BIC criterion
+
+#### One path
+
+```{r}
+#check log return 
+re <- choose.gr.size.onepath(lr.seq1, 
+                             n.seq = n.seq1, f.obj = f.BIC, 
+                             f.trans = function(x) x, save.ind = TRUE, 
+                             name.char = "BIC-gspc")
+re$n.opt
+```
+
+```{r}
+max.mean(lr.seq1^2, n.guess = re$n.opt) #estimation of the sigma interval
+```
+
+#### Random start date
+
+```{r}
+set.seed(123)
+N1 <- 5e3
+n.seq1 <- seq(10, N1/2, 5)
+#n.seq1 <- seq(10, 5e2, 5)
+re.gspc <- choose.gr.size(f.noise.gen = function(N){
+  start.ind <- sample((1:2e2)*10, 1)
+  logReturn.gspc.num.sc[start.ind + seq_len(N)]
+}, N = N1, f.obj = function(dat) f.BIC(dat, short.ind = FALSE), 
+n.seq = n.seq1, rep.time = 1e2, 
+save.ind = TRUE, name.char = "BIC-center-gspc", 
+f.trans = function(x) x, 
+print.re.ind = TRUE, center.val.mat = TRUE)
+
+#center.val.mat = TRUE
+#to remove the different basic level of BIC, so as to better visualize
+#The suggested group size for SP500 is 140 (sd: 42). 
+
+#when big N change, the suggested group size will change, 
+
+#different periods, 
+#
+#it will change to different group size 
+#W=2e3 
+
+#average of the group size 
+
+#historical window size, 
+
+#calibration 
+
+#G-VaR formula
+
+#uniform distribution 
+
+#normalized
+
+```
+
+uniform distribution,
+
+normalized distance, 
+
+evenly spread, 
+
+(sqrt(m))
+
+
+```{r}
+hist(re.gspc$n.opt.seq)
+```
+
+
+```{r}
+#also try it on a different index 
+lr.seq2 <- logReturn.hsi.num.sc[seq_len(N1)]
+#plot(lr.seq2, type = "l")
+#matplot(cbind(lr.seq1,lr.seq2), type = "l")
+
+re <- choose.gr.size.onepath(lr.seq2, 
+                             n.seq = n.seq1, f.obj = f.BIC, 
+                             save.ind = TRUE, name.char = "BIC-hsi")
+#also around 25
+re$n.opt
+```
+
+```{r}
+set.seed(123)
+re.hsi <- choose.gr.size(f.noise.gen = function(N){
+  start.ind <- sample((1:2e2)*10, 1)
+  logReturn.hsi.num.sc[start.ind + seq_len(N)]
+}, N = N1, f.obj = function(dat) f.BIC(dat, short.ind = FALSE), 
+n.seq = n.seq1, rep.time = 1e2, 
+save.ind = TRUE, name.char = "BIC-center-hsi", 
+f.trans = function(x) x, center.val.mat = TRUE)
+
+#The suggested group size for HSI is 127 (sd: 42 ). 
+```
+
+```{r}
+hist(re.hsi$n.opt.seq)
+```
+
+### Blocking bootstrap
+
+(related to Gframe-TS: robust-CI-coverage-comp)
+
+```{r}
+N1 <- 2e3
+n.seq1 <- seq(5, N1/4, 10)
+set.seed(123)
+```
+
+```{r}
+re.gspc <- choose.gr.size(f.noise.gen = function(N){
+  w.seq.real <- boot.mov.block(N.boot = N, block.size = 2e2, step = 50, 
+                               dat.seq = logReturn.gspc.num.sc)
+  w.seq.real
+}, N = N1, f.obj = function(dat) f.BIC(dat, short.ind = FALSE), 
+n.seq = n.seq1, rep.time = 1e2, 
+save.ind = TRUE, name.char = "BIC-boostrap-gspc", 
+f.trans = function(x) x, center.val.mat = TRUE)
+```
+
+```{r}
+hist(re.gspc$n.opt.seq)
+```
+# Different W or N
+
+This section studies the performance of algorithm of BIC criterion under different data size $N$ or historical window size $W$. 
+
+## gspc data (version 1)
+
+```{r}
+#not recommended
+#length(logReturn.gspc.num.sc)
+M <- 1e2 # times of replications
+N.seq <- seq(5e2, 5e3, 250)
+n.seq1 <- seq(10, 500, 5)
+K <- length(N.seq)
+n.opt.dat <- data.frame(n.opt = numeric(M*K), N = as.factor(rep(N.seq, each = M)))
+ind.mat <- matrix(seq_len(M*K), ncol = M, byrow = TRUE)
+#n.opt.mat
+#depends on the length of N.seq
+for (i in seq_along(N.seq)){
+  N1 <- N.seq[i]
+  cat("i=",i,"N=",N1,"\n")
+  #change 10
+  re.gspc <- choose.gr.size(f.noise.gen = function(N){
+  start.ind <- sample((1:2e2)*10, 1)
+  logReturn.gspc.num.sc[start.ind + seq_len(N)]
+}, N = N1, f.obj = function(dat) f.BIC(dat, short.ind = FALSE), 
+n.seq = n.seq1, rep.time = M, save.ind = FALSE, 
+f.trans = function(x) x, 
+print.re.ind = TRUE, center.val.mat = TRUE, plot.ind = FALSE)
+  n.opt.dat[ind.mat[i,],1] <- re.gspc$n.opt.seq
+}
+#set.seed(123)
+```
+
+
+```{r}
+boxplot(n.opt~N, data = n.opt.dat)
+```
+
+## gspc data (version 2)*
+
+(recommended)
+
+```{r}
+set.seed(123)
+lr.seq <- logReturn.gspc.num.sc
+N.max <- length(lr.seq)
+M <- 2e2 # times of replications 
+#change it to 5e2 if needed 
+
+N.seq <- seq(5e2, 4e3, 250)
+# N.seq1 <- seq(5e2, 4e3, 250)
+# N.seq2 <- seq(1500, 3000, 100)
+# N.seq3 <- union(N.seq1, N.seq2)
+# N.seq <- sort(N.seq3)
+
+n.seq1 <- seq(10, 5e2, 5) 
+# we have checked that the n.opt is around 150
+K <- length(N.seq)
+n.opt.dat <- data.frame(n.opt = numeric(M*K), N = as.factor(rep(N.seq, each = M)))
+ind.mat <- matrix(seq_len(M*K), ncol = M, byrow = TRUE)
+#n.opt.mat
+#depends on the length of N.seq
+
+f.circ.ind <- function(x, N = N.max){
+  x.new <- x
+  sub.ind <- which(x>N)
+  x.new[sub.ind] <- x[sub.ind]%%N
+  x.new
+}
+for (i in seq_along(N.seq)){
+  N1 <- N.seq[i] 
+  cat("i=",i,"N=",N1,"\n")
+  # n1.max <- min(500,N1)
+  # n.seq1 <- seq(10, n1.max, 5)
+  #n.seq1 <- seq(10, min(floor(N1/10), 250), 5)
+  re.gspc <- choose.gr.size(f.noise.gen = function(N){
+  #start.ind <- sample((1:2e2)*10, 1)
+  #start.ind <- sample(seq_len(floor(N1/5)), 1) #from 1:(N1/5)
+  #start.ind <- sample(seq(0, N.max-N, 10), 1) #here the range of start.ind depends on the value of N because start.ind can be chosen from any applicable ones across the whole dataset
+  start.ind <- sample(seq(0, N.max-1, 1), 1)
+  ind.seq <- f.circ.ind(start.ind + seq_len(N))
+  #ind.seq <- start.ind + seq_len(N)
+  lr.seq[ind.seq] #improve this indexing 
+  #use %%, if the largest index is larger than the n.max, take %%
+}, N = N1, f.obj = function(dat) f.BIC(dat, short.ind = FALSE), 
+n.seq = n.seq1, rep.time = M, save.ind = FALSE, 
+f.trans = function(x) x, 
+print.re.ind = TRUE, center.val.mat = TRUE, plot.ind = FALSE)
+  n.opt.dat[ind.mat[i,],1] <- re.gspc$n.opt.seq
+}
+```
+
+
+```{r}
+boxplot(n.opt~N, data = n.opt.dat) #save this plot
+```
+
+This boxplot reminds us that we should report median of the n.opt.seq rather than the mean to reduce the effects from extreme cases (the distribution of n.opt.seq is skewed, usually right skewed.) We can see that BIC criterion gives persistent results (in terms of median of n.opt.seq) across different $N$.
+
+Then we can see that we have already achieved a relatively stable estimation of n.opt for $N=2000\sim 3000$.
+
+
+```{r}
+#also draw the confidence interval
+#install.packages("plotrix")
+require(plotrix)
+dat.list <- split(n.opt.dat$n.opt, n.opt.dat$N)
+# CI.mat <- sapply(dat.list, function(x){
+#   mean(x)+c(-1,0,1)*1.96*sd(x)/sqrt(length(x))
+# })
+
+med.mat <- sapply(dat.list, function(x){
+  median(x)+c(-1,0,1)*mad(x)/2
+})
+
+n.opt.mean <- med.mat[2,]
+
+plotCI(N.seq, n.opt.mean, li = med.mat[1,], ui = med.mat[3,])
+#we use median is better
+#to reduce the effects from extreme cases
+```
+
+```{r}
+plot(N.seq, sapply(dat.list, IQR), type = "l", ylab = "IQR")
+plot(N.seq, med.mat[3,]-med.mat[1,], type = "l", ylab = "MAD")
+```
+
+
+## hsi data
+
+(check it for hsi data, be careful on the choice of N.seq and n.seq1 due to because the length of hsi data could be different.)
+
+## Nasdaq data 
+
+```{r}
+set.seed(123)
+lr.seq <- logReturn.ixic.num.sc
+N.max <- length(lr.seq)
+M <- 2e2 # times of replications 
+#change it to 5e2 if needed 
+
+#N.seq <- seq(5e2, 6e3, 5e2)
+N.seq1 <- seq(5e2, 4e3, 250)
+# N.seq2 <- seq(1500, 3000, 100)
+# N.seq3 <- union(N.seq1, N.seq2)
+# N.seq <- sort(N.seq3)
+n.seq1 <- seq(10, 5e2, 5) 
+# we have checked that the n.opt is around 150
+K <- length(N.seq)
+n.opt.dat <- data.frame(n.opt = numeric(M*K), N = as.factor(rep(N.seq, each = M)))
+ind.mat <- matrix(seq_len(M*K), ncol = M, byrow = TRUE)
+#n.opt.mat
+#depends on the length of N.seq
+f.circ.ind <- function(x, N = N.max){
+  x.new <- x
+  sub.ind <- which(x>N)
+  x.new[sub.ind] <- x[sub.ind]%%N
+  x.new
+}
+for (i in seq_along(N.seq)){
+  N1 <- N.seq[i] 
+  cat("i=",i,"N=",N1,"\n")
+  # n1.max <- min(500,N1)
+  # n.seq1 <- seq(10, n1.max, 5)
+  #n.seq1 <- seq(10, min(floor(N1/10), 250), 5)
+  re.ixic <- choose.gr.size(f.noise.gen = function(N){
+  #start.ind <- sample((1:2e2)*10, 1)
+  #start.ind <- sample(seq_len(floor(N1/5)), 1) #from 1:(N1/5)
+  #start.ind <- sample(seq(0, N.max-N, 10), 1) 
+  start.ind <- sample(seq(0, N.max-1, 1), 1)
+  #here the range of start.ind depends on the value of N because start.ind can be chosen from any applicable ones across the whole dataset
+  ind.seq <- f.circ.ind(start.ind + seq_len(N))
+  #ind.seq <- start.ind + seq_len(N)
+  lr.seq[ind.seq] #improve this indexing 
+  #use %%, if the largest index is larger than the n.max, take %%
+}, N = N1, f.obj = function(dat) f.BIC(dat, short.ind = FALSE), 
+n.seq = n.seq1, rep.time = M, save.ind = FALSE, 
+f.trans = function(x) x, 
+print.re.ind = TRUE, center.val.mat = TRUE, plot.ind = FALSE)
+  n.opt.dat[ind.mat[i,],1] <- re.ixic$n.opt.seq
+}
+```
+
+
+```{r}
+boxplot(n.opt~N, data = n.opt.dat) #save this plot
+#save this result: n.opt.dat
+```
+
+
