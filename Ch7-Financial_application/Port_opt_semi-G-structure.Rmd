@@ -1,0 +1,1533 @@
+---
+title: 'Attempts: Portforlio Optimization under semi-G-structure'
+author: "Yifan Li"
+date: "04/02/2022"
+output:
+  html_document:
+    number_sections: true
+    df_print: paged
+    toc: true
+    toc_depth: 3
+    toc_float: true
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+# Preparation
+
+```{r}
+source("Port_opt_semi-G-structure-functions.R")
+```
+
+```{r}
+sd.mat0 <- matrix(c(1,3, 
+                    2,4), 2, 2, byrow = TRUE)
+mu.vec <- matrix(c(1, 2), 2, 1)
+rho.vec <- c(0.2,0.4)
+```
+
+# Implementation
+
+## P: min variance
+
+```{r}
+(A1 <- A.f(sd.mat0, rho.vec, par.weight = 1/2, i=1))
+(A2 <- A.f(sd.mat0, rho.vec, par.weight = 3/4, i=2))
+is.positive.definite(A1)
+is.positive.definite(A2)
+```
+
+```{r}
+# Variables minimized over
+x <- Variable(2)
+
+# Problem definition
+objective <- Minimize(quad_form(x, A2/2))
+constraints <- list(x >= 0, sum(x) == 1)
+#constraints <- list(sum(x) == 1)
+prob <- Problem(objective, constraints)
+
+# Problem solution
+solution <- solve(prob)
+solution$status
+solution$value
+solution$getValue(x)
+#average allocation
+#achieve smallest variance uncertainty
+```
+
+```{r}
+#consider another problem
+# Variables minimized over
+x <- Variable(2)
+t <- 1
+# Problem definition
+objective <- Minimize(quad_form(x, A1/2) - t*t(mu.vec)%*%x)
+constraints <- list(x >= 0, sum(x) == 1)
+#constraints <- list(sum(x) == 1)
+prob <- Problem(objective, constraints)
+
+# Problem solution
+solution <- solve(prob)
+solution$status
+solution$value
+solution$getValue(x)
+(H.opt <- solution$getValue(quad_form(x, A1)))
+(mu.opt <- solution$getValue(t(mu.vec)%*%x))
+```
+
+## Q: efficient frontier
+
+### A1
+
+```{r}
+#draw the efficient frontier 
+t.seq <- seq(-5,5,.1)
+H.opt.seq <- mu.opt.seq <- numeric(length(t.seq))
+# x.opt.mat <- matrix(NA, 
+#                     nrow = length(t.seq), ncol=2)
+for (i in seq_along(t.seq)){
+  t <- t.seq[i]
+  x <- Variable(2)
+# Problem definition
+objective <- Minimize(quad_form(x, A1/2) - t*t(mu.vec)%*%x)
+constraints <- list(x >= 0, sum(x) == 1)
+#constraints <- list(sum(x) == 1)
+prob <- Problem(objective, constraints)
+
+# Problem solution
+solution <- solve(prob)
+#x.opt.mat[i,] <- as.numeric(solution$getValue(x))
+H.opt.seq[i] <- solution$getValue(quad_form(x, A1))
+mu.opt.seq[i] <- solution$getValue(t(mu.vec)%*%x)
+}
+
+```
+
+```{r}
+#efficient frontier
+plot(H.opt.seq, mu.opt.seq, type = "l", 
+     main = "A1 opt problem")
+```
+
+### A2
+
+```{r}
+#draw the efficient frontier 
+t.seq <- seq(-5,5,.1)
+H.opt.seq <- mu.opt.seq <- numeric(length(t.seq))
+for (i in seq_along(t.seq)){
+  t <- t.seq[i]
+  x <- Variable(2)
+# Problem definition
+objective <- Minimize(quad_form(x, A2/2) - t*t(mu.vec)%*%x)
+constraints <- list(x >= 0, sum(x) == 1)
+#constraints <- list(sum(x) == 1)
+prob <- Problem(objective, constraints)
+
+# Problem solution
+solution <- solve(prob)
+H.opt.seq[i] <- solution$getValue(quad_form(x, A1))
+mu.opt.seq[i] <- solution$getValue(t(mu.vec)%*%x)
+}
+```
+
+```{r}
+#efficient frontier
+plot(H.opt.seq, mu.opt.seq, type = "l", 
+     main = "A2 opt problem")
+```
+
+EF does depend on the measure we choose and also the tuning parameter (which depends on the preference of the user on the variance uncertainty).
+
+## EF: change par
+
+### A1
+
+```{r, eval=FALSE}
+t.seq <- seq(-10, 10, .2)
+a.seq <- seq(0.1, 0.9,.1)
+H.opt.mat <- mu.opt.mat <- matrix(NA, 
+                                  ncol = length(a.seq),
+                                  nrow = length(t.seq))
+
+
+#we can run parallel computing for this part
+for (j in seq_along(a.seq)){
+  a <- a.seq[j]
+  A1 <- A.f(sd.mat0, rho.vec, par.weight = a, i=1)
+  cat("j = ",j, "\n")
+for (i in seq_along(t.seq)){
+  t <- t.seq[i]
+  x <- Variable(2)
+  # Problem definition
+  objective <- Minimize(quad_form(x, A1/2) - t*t(mu.vec)%*%x)
+  constraints <- list(x >= 0, sum(x) == 1)
+  #constraints <- list(sum(x) == 1)
+  prob <- Problem(objective, constraints)
+
+  # Problem solution
+  solution <- solve(prob)
+  H.opt.mat[i, j] <- solution$getValue(quad_form(x, A1))
+  mu.opt.mat[i, j] <- solution$getValue(t(mu.vec)%*%x)
+}
+
+}
+
+#plot the matrix
+#get the largest range
+H.lim <- c(min(H.opt.mat), max(H.opt.mat))
+mu.lim <- c(min(mu.opt.mat), max(mu.opt.mat))
+
+for (j in seq_along(a.seq)){
+  if (j==1){
+    plot(H.opt.mat[,j],mu.opt.mat[,j], col=j,lty=j,
+         type = "l", xlab = "H.opt", ylab = "mu.opt", 
+         xlim = H.lim, ylim = mu.lim, 
+         main = "Changing tuning par for P2.1")
+  } else {
+    lines(H.opt.mat[,j],mu.opt.mat[,j], col=j,lty=j,
+          type = "l")
+  }
+}
+
+```
+
+### A2
+
+```{r, eval=FALSE}
+t.seq <- seq(-10, 10, .2)
+a.seq <- seq(2/3, 0.99, length.out = 9)
+H.opt.mat2 <- mu.opt.mat2 <- matrix(NA, 
+                                  ncol = length(a.seq),
+                                  nrow = length(t.seq))
+#we can run parallel computing for this part
+#seq_along(a.seq)
+for (j in seq_along(a.seq)){
+  a <- a.seq[j]
+  A1 <- A.f(sd.mat0, rho.vec, par.weight = a, i=1)
+  cat("j = ",j, "\n")
+for (i in seq_along(t.seq)){
+  t <- t.seq[i]
+  x <- Variable(2)
+  # Problem definition
+  objective <- Minimize(quad_form(x, A1/2) - t*t(mu.vec)%*%x)
+  constraints <- list(x >= 0, sum(x) == 1)
+  #constraints <- list(sum(x) == 1)
+  prob <- Problem(objective, constraints)
+
+  # Problem solution
+  solution <- solve(prob)
+  H.opt.mat2[i, j] <- solution$getValue(quad_form(x, A1))
+  mu.opt.mat2[i, j] <- solution$getValue(t(mu.vec)%*%x)
+}
+
+}
+
+#plot the matrix
+#get the largest range
+H.lim <- c(min(H.opt.mat2), max(H.opt.mat2))
+mu.lim <- c(min(mu.opt.mat2), max(mu.opt.mat2))
+
+for (j in seq_along(a.seq)){
+  if (j==1){
+    plot(H.opt.mat2[,j],mu.opt.mat2[,j], col=j,lty=j,
+         type = "l", xlab = "H.opt", ylab = "mu.opt", 
+         xlim = H.lim, ylim = mu.lim, 
+         main = "Changing tuning par for P2.2")
+  } else {
+    lines(H.opt.mat2[,j],mu.opt.mat2[,j], col=j,lty=j,
+          type = "l")
+  }
+}
+
+```
+
+# Extended cases
+
+## Objective function
+
+```{r}
+#consider the rho as negative
+#consider this problem from theoretical level
+```
+
+```{r}
+#check whether the optimal weight depend on the tuning parameter
+
+```
+
+```{r contour}
+#plot the range of the functions 
+#H is the objective function
+#draw a 3D surface plot
+sig1 <- seq(0.1, 4, .01)
+sig2 <- seq(2, 5, .01)
+
+z <- outer(sig1, sig2, H)
+
+contour(sig1, sig2, z, xlab="sig1", ylab="sig2", xlim = range(sig1), ylim = range(sig2))
+#abline(a=0, b=0.5, col=2, xlim = range(sig1))
+#abline(a=0, b=1/0.5, col=2, ylim = range(sig2))
+```
+
+```{r}
+which.min(z)
+which.max(z)
+```
+
+```{r}
+plot(function(x) H(x, sig2=2), from = min(sig1), to = max(sig1), 
+     xlab = "sig1")
+
+plot(function(x) H(sig1=2, sig2=x), from = min(sig2), to = max(sig2), 
+     xlab = "sig2")
+```
+
+```{r plotly}
+x <- sig1
+y <- sig2
+fig <- plot_ly(
+  type = 'surface',
+  contours = list(
+    z = list(show = TRUE, start = 0, end = max(z), size = 0.04)),
+  x = ~x,
+  y = ~y,
+  z = ~z)
+fig <- fig %>% layout(
+    scene = list(
+      xaxis = list(nticks = 20),
+      zaxis = list(nticks = 20),
+      camera = list(eye = list(x = 0, y = -1, z = 0.5)),
+      aspectratio = list(x = .9, y = .8, z = .6)))
+fig
+```
+
+```{r}
+#our current guess is, for 
+#check different cases
+#the objective function may no longer be a convex one
+```
+
+```{r}
+#use range.set
+range.set(x1=0.2, print.ind = TRUE, rho.intvl = c(-0.8, -0.4))
+range.set(x1=0.5, print.ind = TRUE, rho.intvl = c(-0.8, -0.4))
+range.set(x1=0.8, print.ind = TRUE, rho.intvl = c(-0.8, -0.4))
+```
+
+```{r}
+#plot the maximum variance
+x1.seq <- seq(-1, 2, .01)
+#x1.seq <- seq(0, 1, .01)
+rho.intvl1 <- c(-0.8,-0.4)
+h.seq <- sapply(x1.seq, function(x){
+  re <- range.set(x1=x, rho.intvl = rho.intvl1)
+  re[2]
+})
+plot(x1.seq, h.seq, type = "l", ylab = "max var", 
+     main = paste0("rho.intvl = [", rho.intvl1[1], 
+                   ",", rho.intvl1[2], "]"))
+#the max variance
+#it is still a convex function
+#not only for positive x1
+```
+
+```{r}
+rho.intvl1 <- c(-0.8,0.4)
+h.seq <- sapply(x1.seq, function(x){
+  re <- range.set(x1=x, rho.intvl = rho.intvl1)
+  re[2]
+})
+plot(x1.seq, h.seq, type = "l", ylab = "max var", 
+     main = paste0("rho.intvl = [", rho.intvl1[1], 
+                   ",", rho.intvl1[2], "]"))
+```
+
+```{r}
+rho.intvl1 <- c(-0.8,0.4)
+h.seq <- sapply(x1.seq, function(x){
+  re <- range.set(x1=x, rho.intvl = rho.intvl1)
+  re[1]
+})
+plot(x1.seq, h.seq, type = "l", ylab = "min var", 
+     main = paste0("rho.intvl = [", rho.intvl1[1], 
+                   ",", rho.intvl1[2], "]"))
+```
+
+```{r}
+rho.intvl1 <- c(-0.2,0.2)
+h.seq <- sapply(x1.seq, function(x){
+  re <- range.set(x1=x, rho.intvl = rho.intvl1)
+  re[2]
+})
+plot(x1.seq, h.seq, type = "l", ylab = "max var", 
+     main = paste0("rho.intvl = [", rho.intvl1[1], 
+                   ",", rho.intvl1[2], "]"))
+```
+
+```{r}
+#plot the min variance
+x1.seq <- seq(-1, 2, .01)
+#x1.seq <- seq(0, 1, .01)
+rho.intvl1 <- c(-0.8,-0.4)
+h.seq <- sapply(x1.seq, function(x){
+  re <- range.set(x1=x, rho.intvl = rho.intvl1)
+  re[1]
+})
+plot(x1.seq, h.seq, type = "l", ylab = "min var", 
+     main = paste0("rho.intvl = [", rho.intvl1[1], 
+                   ",", rho.intvl1[2], "]"))
+#the min variance
+#it is not a convex function
+#not only for positive x1
+```
+
+```{r}
+x1.seq <- seq(0.9, 1.1, .01)
+rho.intvl1 <- c(-0.8,-0.4)
+h.seq <- sapply(x1.seq, function(x){
+  re <- range.set(x1=x, rho.intvl = rho.intvl1)
+  re[1]
+})
+plot(x1.seq, h.seq, type = "l", ylab = "min var", 
+     main = paste0("rho.intvl = [", rho.intvl1[1], 
+                   ",", rho.intvl1[2], "]"))
+```
+
+```{r}
+x1.seq <- seq(-1, 2, .01)
+rho.intvl1 <- c(-0.8, -0.5)
+h.seq <- sapply(x1.seq, function(x){
+  re <- range.set(x1=x, rho.intvl = rho.intvl1)
+  re[2]-re[1]
+})
+plot(x1.seq, h.seq, type = "l", ylab = "max var", 
+     main = paste0("rho.intvl = [", rho.intvl1[1], 
+                   ",", rho.intvl1[2], "]"))
+#It may not be convex
+#but it should still have a global minimum
+```
+
+## P: min variance
+
+### A1
+
+```{r}
+#run the numerical optimization for this function
+#so far we do not have a closed form solution
+
+#direct minimization of H w.r.t x1
+
+#both report the variance and current mean
+E1 <- function(x, lam = 0.5, rho.intvl = c(-0.8, -0.5)){
+  re <- range.set(x1=x, rho.intvl = rho.intvl)
+  lam*re[2]+(1-lam)*re[1]
+}
+
+(opt.re <- optimize(E1, interval = c(-50,50)))
+x1.opt <- opt.re$minimum
+
+(x.opt <- c(x1.opt, 1-x1.opt))
+(obj.opt <- opt.re$objective)
+
+```
+
+### A2
+
+```{r}
+E2 <- function(x, kap = 0.5, rho.intvl = c(-0.8, -0.5)){
+  re <- range.set(x1=x, rho.intvl = rho.intvl)
+  cen <- (re[2]+re[1])/2
+  amb <- re[2]-re[1]
+  kap*cen+(1-kap)*amb
+}
+
+(opt.re <- optimize(E2, c(-50, 50)))
+x1.opt <- opt.re$minimum
+
+(x.opt <- c(x1.opt, 1-x1.opt))
+(obj.opt <- opt.re$objective)
+```
+
+## Q: efficient frontier
+
+-   change the objective function
+-   subtract by $tx\mu$
+-   then also draw the EF
+
+### A1
+
+```{r}
+#draw the efficient frontier 
+t.seq <- seq(-5,5,.1)
+H.opt.seq <- mu.opt.seq <- numeric(length(t.seq))
+mu.vec <- as.numeric(mu.vec)
+# x.opt.mat <- matrix(NA, 
+#                     nrow = length(t.seq), ncol=2)
+
+rho.intvl1 <- c(-0.8, -0.5)
+#objective function
+E1 <- function(x, lam = 0.5, rho.intvl = rho.intvl1){
+  re <- range.set(x1=x, rho.intvl = rho.intvl)
+  lam*re[2]+(1-lam)*re[1]
+}
+
+for (i in seq_along(t.seq)){
+  t <- t.seq[i]
+  
+  obj <- function(x) E1(x) - t*sum(mu.vec*x)
+  opt.re <- optimize(obj, interval = c(-50,50))
+  
+  x1.opt <- opt.re$minimum
+  x.opt <- c(x1.opt, 1-x1.opt)
+  H.opt.seq[i] <- E1(x1.opt)
+  mu.opt.seq[i] <- sum(mu.vec*x.opt)
+}
+
+
+#efficient frontier
+plot(H.opt.seq, mu.opt.seq, type = "l", 
+     main = paste0("Q1 opt problem with ", "rho.intvl = [", rho.intvl1[1],
+                   ",", rho.intvl1[2], "]"))
+```
+
+```{r, echo=FALSE}
+#draw the efficient frontier 
+t.seq <- seq(-5,5,.1)
+H.opt.seq <- mu.opt.seq <- numeric(length(t.seq))
+mu.vec <- as.numeric(mu.vec)
+# x.opt.mat <- matrix(NA, 
+#                     nrow = length(t.seq), ncol=2)
+
+rho.intvl1 <- c(-0.8, 0.5)
+#objective function
+E1 <- function(x, lam = 0.5, rho.intvl = rho.intvl1){
+  re <- range.set(x1=x, rho.intvl = rho.intvl)
+  lam*re[2]+(1-lam)*re[1]
+}
+
+for (i in seq_along(t.seq)){
+  t <- t.seq[i]
+  
+  obj <- function(x) E1(x) - t*sum(mu.vec*x)
+  opt.re <- optimize(obj, interval = c(-50,50))
+  
+  x1.opt <- opt.re$minimum
+  x.opt <- c(x1.opt, 1-x1.opt)
+  H.opt.seq[i] <- E1(x1.opt)
+  mu.opt.seq[i] <- sum(mu.vec*x.opt)
+}
+
+
+#efficient frontier
+plot(H.opt.seq, mu.opt.seq, type = "l", 
+     main = paste0("Q1 opt problem with ", "rho.intvl = [", rho.intvl1[1],
+                   ",", rho.intvl1[2], "]"))
+```
+
+```{r, echo=FALSE}
+#draw the efficient frontier 
+t.seq <- seq(-5,5,.1)
+H.opt.seq <- mu.opt.seq <- numeric(length(t.seq))
+mu.vec <- as.numeric(mu.vec)
+# x.opt.mat <- matrix(NA, 
+#                     nrow = length(t.seq), ncol=2)
+
+rho.intvl1 <- c(0.5, 0.8)
+
+#objective function
+E1 <- function(x, lam = 0.5, rho.intvl = rho.intvl1){
+  re <- range.set(x1=x, rho.intvl = rho.intvl)
+  lam*re[2]+(1-lam)*re[1]
+}
+
+for (i in seq_along(t.seq)){
+  t <- t.seq[i]
+  
+  obj <- function(x) E1(x) - t*sum(mu.vec*x)
+  opt.re <- optimize(obj, interval = c(-50,50))
+  
+  x1.opt <- opt.re$minimum
+  x.opt <- c(x1.opt, 1-x1.opt)
+  H.opt.seq[i] <- E1(x1.opt)
+  mu.opt.seq[i] <- sum(mu.vec*x.opt)
+}
+
+
+#efficient frontier
+plot(H.opt.seq, mu.opt.seq, type = "l", 
+     main = paste0("Q1 opt problem with ", "rho.intvl = [", rho.intvl1[1],
+                   ",", rho.intvl1[2], "]"))
+```
+
+### A2
+
+```{r}
+#draw the efficient frontier 
+t.seq <- seq(-5,5,.1)
+H.opt.seq <- mu.opt.seq <- numeric(length(t.seq))
+mu.vec <- as.numeric(mu.vec)
+# x.opt.mat <- matrix(NA, 
+#                     nrow = length(t.seq), ncol=2)
+
+#objective function
+rho.intvl1 <- c(-0.8, -0.5)
+
+E2 <- function(x, kap = 0.5, rho.intvl = rho.intvl1){
+  re <- range.set(x1=x, rho.intvl = rho.intvl)
+  cen <- (re[2]+re[1])/2
+  amb <- re[2]-re[1]
+  kap*cen+(1-kap)*amb
+}
+
+for (i in seq_along(t.seq)){
+  t <- t.seq[i]
+  
+  obj <- function(x) E2(x) - t*sum(mu.vec*x)
+  opt.re <- optimize(obj, interval = c(-50,50))
+  
+  x1.opt <- opt.re$minimum
+  x.opt <- c(x1.opt, 1-x1.opt)
+  H.opt.seq[i] <- E2(x1.opt) #to change 
+  mu.opt.seq[i] <- sum(mu.vec*x.opt)
+}
+
+
+#efficient frontier
+plot(H.opt.seq, mu.opt.seq, type = "l", 
+     main = paste0("Q1 opt problem with ", "rho.intvl = [", rho.intvl1[1],
+                   ",", rho.intvl1[2], "]"))
+```
+
+```{r, echo=FALSE}
+#draw the efficient frontier 
+t.seq <- seq(-5,5,.1)
+H.opt.seq <- mu.opt.seq <- numeric(length(t.seq))
+mu.vec <- as.numeric(mu.vec)
+# x.opt.mat <- matrix(NA, 
+#                     nrow = length(t.seq), ncol=2)
+
+#objective function
+rho.intvl1 <- c(-0.8, -0.5)
+
+E2 <- function(x, kap = 0.5, rho.intvl = rho.intvl1){
+  re <- range.set(x1=x, rho.intvl = rho.intvl)
+  cen <- (re[2]+re[1])/2
+  amb <- re[2]-re[1]
+  kap*cen+(1-kap)*amb
+}
+
+for (i in seq_along(t.seq)){
+  t <- t.seq[i]
+  
+  obj <- function(x) E2(x) - t*sum(mu.vec*x)
+  opt.re <- optimize(obj, interval = c(-50,50))
+  
+  x1.opt <- opt.re$minimum
+  x.opt <- c(x1.opt, 1-x1.opt)
+  H.opt.seq[i] <- E2(x1.opt) #to change 
+  mu.opt.seq[i] <- sum(mu.vec*x.opt)
+}
+
+
+#efficient frontier
+plot(H.opt.seq, mu.opt.seq, type = "l", 
+     main = paste0("Q1 opt problem with ", "rho.intvl = [", rho.intvl1[1],
+                   ",", rho.intvl1[2], "]"))
+```
+
+```{r, echo=FALSE}
+#draw the efficient frontier 
+t.seq <- seq(-5,5,.1)
+H.opt.seq <- mu.opt.seq <- numeric(length(t.seq))
+mu.vec <- as.numeric(mu.vec)
+# x.opt.mat <- matrix(NA, 
+#                     nrow = length(t.seq), ncol=2)
+
+#objective function
+rho.intvl1 <- c(0.5, 0.8)
+
+E2 <- function(x, kap = 0.5, rho.intvl = rho.intvl1){
+  re <- range.set(x1=x, rho.intvl = rho.intvl)
+  cen <- (re[2]+re[1])/2
+  amb <- re[2]-re[1]
+  kap*cen+(1-kap)*amb
+}
+
+for (i in seq_along(t.seq)){
+  t <- t.seq[i]
+  
+  obj <- function(x) E2(x) - t*sum(mu.vec*x)
+  opt.re <- optimize(obj, interval = c(-50,50))
+  
+  x1.opt <- opt.re$minimum
+  x.opt <- c(x1.opt, 1-x1.opt)
+  H.opt.seq[i] <- E2(x1.opt) #to change 
+  mu.opt.seq[i] <- sum(mu.vec*x.opt)
+}
+
+
+#efficient frontier
+plot(H.opt.seq, mu.opt.seq, type = "l", 
+     main = paste0("Q1 opt problem with ", "rho.intvl = [", rho.intvl1[1],
+                   ",", rho.intvl1[2], "]"))
+```
+
+## EF: change par
+
+```{r}
+t.seq <- seq(-5, 5, .1)
+a.seq <- seq(0.1, 0.9,.1)
+```
+
+### A1
+
+```{r}
+H.opt.mat <- mu.opt.mat <- matrix(NA, 
+                                  ncol = length(a.seq),
+                                  nrow = length(t.seq))
+
+#we can run parallel computing for this part
+for (j in seq_along(a.seq)){
+  a <- a.seq[j]
+  E1 <- function(x, lam = a, rho.intvl = c(-0.8, 0.5)){
+  re <- range.set(x1=x, rho.intvl = rho.intvl)
+  lam*re[2]+(1-lam)*re[1]
+}
+  #A1 <- A.f(sd.mat0, rho.vec, par.weight = a, i=1)
+  cat("j = ",j, "\n")
+for (i in seq_along(t.seq)){
+  t <- t.seq[i]
+  obj <- function(x) E1(x) - t*sum(mu.vec*x)
+  opt.re <- optimize(obj, interval = c(-50,50))
+  x1.opt <- opt.re$minimum
+  x.opt <- c(x1.opt, 1-x1.opt)
+  H.opt.mat[i, j] <- E1(x1.opt)
+  mu.opt.mat[i, j] <- sum(mu.vec*x.opt)
+}
+}
+
+```
+
+```{r}
+#plot the matrix
+#get the largest range
+H.lim <- c(min(H.opt.mat), max(H.opt.mat))
+mu.lim <- c(min(mu.opt.mat), max(mu.opt.mat))
+
+for (j in seq_along(a.seq)){
+  if (j==1){
+    plot(H.opt.mat[,j],mu.opt.mat[,j], col=j,lty=j,
+         type = "l", xlab = "H.opt", ylab = "mu.opt", 
+         xlim = H.lim, ylim = mu.lim, 
+         main = "Changing tuning par for Q1")
+  } else {
+    lines(H.opt.mat[,j],mu.opt.mat[,j], col=j,lty=j,
+          type = "l")
+  }
+}
+
+```
+
+### A2
+
+```{r}
+H.opt.mat <- mu.opt.mat <- matrix(NA, 
+                                  ncol = length(a.seq),
+                                  nrow = length(t.seq))
+
+#we can run parallel computing for this part
+for (j in seq_along(a.seq)){
+  a <- a.seq[j]
+  E2 <- function(x, kap = a, rho.intvl = c(-0.8, 0.5)){
+  re <- range.set(x1=x, rho.intvl = rho.intvl)
+  cen <- (re[2]+re[1])/2
+  amb <- re[2]-re[1]
+  kap*cen+(1-kap)*amb
+}
+  #A1 <- A.f(sd.mat0, rho.vec, par.weight = a, i=1)
+  cat("j = ",j, "\n")
+for (i in seq_along(t.seq)){
+  t <- t.seq[i]
+  obj <- function(x) E2(x) - t*sum(mu.vec*x)
+  opt.re <- optimize(obj, interval = c(-50,50))
+  x1.opt <- opt.re$minimum
+  x.opt <- c(x1.opt, 1-x1.opt)
+  H.opt.mat[i, j] <- E1(x1.opt)
+  mu.opt.mat[i, j] <- sum(mu.vec*x.opt)
+}
+}
+
+```
+
+```{r}
+#plot the matrix
+#get the largest range
+H.lim <- c(min(H.opt.mat), max(H.opt.mat))
+mu.lim <- c(min(mu.opt.mat), max(mu.opt.mat))
+
+for (j in seq_along(a.seq)){
+  if (j==1){
+    plot(H.opt.mat[,j],mu.opt.mat[,j], col=j,lty=j,
+         type = "l", xlab = "H.opt", ylab = "mu.opt", 
+         xlim = H.lim, ylim = mu.lim, 
+         main = "Changing tuning par for Q1")
+  } else {
+    lines(H.opt.mat[,j],mu.opt.mat[,j], col=j,lty=j,
+          type = "l")
+  }
+}
+
+```
+
+## How does the optimal port depend on the paramter?
+
+### A1
+
+#### sig1.intvl
+
+```{r rho_pos}
+#x1 vs sig1.intvl
+x.seq <- sig1.low.seq <- seq(0.5, 4, .1)
+y.seq <- sig1.amb.seq <- seq(0.1, 2, .1)
+
+S <- function(a,b){
+#both report the variance and current mean
+  E1 <- function(x, lam = 0.5, rho.intvl = c(0.5, 0.5), 
+                  sig1.intvl = lowamb2intvl(a,b), 
+                  sig2.intvl = c(2, 2)){
+  re <- range.set(x1=x, rho.intvl = rho.intvl, 
+                  sig1.intvl = sig1.intvl, 
+                  sig2.intvl = sig2.intvl)
+  lam*re[2]+(1-lam)*re[1]
+ }
+
+ opt.re <- optimize(E1, interval = c(-50,50))
+ x1.opt <- opt.re$minimum
+ return(x1.opt)
+}
+
+z <- matrix(NA, nrow = length(x.seq), ncol = length(y.seq))
+
+for (i in seq_along(x.seq)){
+  for (j in seq_along(y.seq)){
+    z[i,j] <- S(x.seq[i], y.seq[j])
+  }
+}
+
+#z <- outer(x.seq, y.seq, S)
+
+#fig1 <- plot3d(x.seq, y.seq, z.mat)
+#rglwidget(elementId = "plot3drgl")
+
+x <- x.seq
+y <- y.seq
+fig <- plot_ly(
+  type = 'surface',
+  # contours = list(
+  #   z = list(show = TRUE, start = 0, end = max(z), size = 0.04)),
+  x = ~x,
+  y = ~y,
+  z = ~z)
+fig <- fig %>% layout(
+    scene = list(
+      xaxis = list(nticks = 10, title = "sig1.low"),
+      yaxis = list(nticks = 10, title = "sig1.amb"),
+      zaxis = list(nticks = 10, title = "x1.opt"),
+      camera = list(eye = list(x = -1, y = -1, z = 0)),
+      aspectratio = list(x = .9, y = .8, z = 0.6)))
+fig
+```
+
+As $\underline{\sigma}_1$ increases or the ambiguity of variance (of asset one) increases, the proportion on $x1$ will decrease.
+
+```{r rho_neg}
+#x1 vs sig1.intvl
+x.seq <- sig1.low.seq <- seq(0.5, 4, .1)
+y.seq <- sig1.amb.seq <- seq(0.1, 2, .1)
+
+S <- function(a,b){
+#both report the variance and current mean
+  E1 <- function(x, lam = 0.5, rho.intvl = c(-0.5, -0.5), 
+                  sig1.intvl = lowamb2intvl(a,b), 
+                  sig2.intvl = c(2, 2)){
+  re <- range.set(x1=x, rho.intvl = rho.intvl, 
+                  sig1.intvl = sig1.intvl, 
+                  sig2.intvl = sig2.intvl)
+  lam*re[2]+(1-lam)*re[1]
+ }
+
+ opt.re <- optimize(E1, interval = c(-50,50))
+ x1.opt <- opt.re$minimum
+ return(x1.opt)
+}
+
+z <- matrix(NA, nrow = length(x.seq), ncol = length(y.seq))
+
+for (i in seq_along(x.seq)){
+  for (j in seq_along(y.seq)){
+    z[i,j] <- S(x.seq[i], y.seq[j])
+  }
+}
+
+#z <- outer(x.seq, y.seq, S)
+
+#fig1 <- plot3d(x.seq, y.seq, z.mat)
+#rglwidget(elementId = "plot3drgl")
+
+x <- x.seq
+y <- y.seq
+fig <- plot_ly(
+  type = 'surface',
+  # contours = list(
+  #   z = list(show = TRUE, start = 0, end = max(z), size = 0.04)),
+  x = ~x,
+  y = ~y,
+  z = ~z)
+fig <- fig %>% layout(
+    scene = list(
+      xaxis = list(nticks = 10, title = "sig1.low"),
+      yaxis = list(nticks = 10, title = "sig1.amb"),
+      zaxis = list(nticks = 10, title = "x1.opt"),
+      camera = list(eye = list(x = -1, y = 0, z = 0)),
+      aspectratio = list(x = .9, y = .8, z = .6)))
+fig
+```
+
+```{r rho_neg_pos}
+#x1 vs sig1.intvl
+x.seq <- sig1.low.seq <- seq(0.5, 4, .1)
+y.seq <- sig1.amb.seq <- seq(0.1, 2, .1)
+
+S <- function(a,b){
+#both report the variance and current mean
+  E1 <- function(x, lam = 0.5, rho.intvl = c(-0.5, 0.5), 
+                  sig1.intvl = lowamb2intvl(a,b), 
+                  sig2.intvl = c(2, 2)){
+  re <- range.set(x1=x, rho.intvl = rho.intvl, 
+                  sig1.intvl = sig1.intvl, 
+                  sig2.intvl = sig2.intvl)
+  lam*re[2]+(1-lam)*re[1]
+ }
+
+ opt.re <- optimize(E1, interval = c(-50,50))
+ x1.opt <- opt.re$minimum
+ return(x1.opt)
+}
+
+z <- matrix(NA, nrow = length(x.seq), ncol = length(y.seq))
+
+for (i in seq_along(x.seq)){
+  for (j in seq_along(y.seq)){
+    z[i,j] <- S(x.seq[i], y.seq[j])
+  }
+}
+
+#z <- outer(x.seq, y.seq, S)
+
+#fig1 <- plot3d(x.seq, y.seq, z.mat)
+#rglwidget(elementId = "plot3drgl")
+
+x <- x.seq
+y <- y.seq
+fig <- plot_ly(
+  type = 'surface',
+  # contours = list(
+  #   z = list(show = TRUE, start = 0, end = max(z), size = 0.04)),
+  x = ~x,
+  y = ~y,
+  z = ~z)
+fig <- fig %>% layout(
+    scene = list(
+      xaxis = list(nticks = 10, title = "sig1.low"),
+      yaxis = list(nticks = 10, title = "sig1.amb"),
+      zaxis = list(nticks = 10, title = "x1.opt"),
+      camera = list(eye = list(x = -1, y = 0, z = 0)),
+      aspectratio = list(x = .9, y = .8, z = .6)))
+fig
+```
+
+#### rho.intvl
+
+```{r}
+#x1 vs sig1.intvl
+x.seq <- rho.l.seq <- seq(-0.9, 0.9, .01)
+y.seq <- rho.r.seq <- seq(-0.9, 0.9, .01)
+load("z_rho.Rdata")
+```
+
+```{r plot3d2, eval=FALSE}
+S <- function(a,b){
+  if (a>b) {
+    return(NA)
+  } else {
+    E1 <- function(x, lam = 0.5, rho.intvl = c(a,b), 
+                  sig1.intvl = c(0.5,1), 
+                  sig2.intvl = c(1,2)){
+    re <- range.set(x1=x, rho.intvl = rho.intvl, 
+                  sig1.intvl = sig1.intvl, 
+                  sig2.intvl = sig2.intvl)
+    lam*re[2]+(1-lam)*re[1]
+ }
+   opt.re <- optimize(E1, interval = c(-50,50))
+   x1.opt <- opt.re$minimum
+   return(x1.opt) 
+    }
+}
+
+z <- matrix(NA, ncol = length(x.seq), nrow = length(y.seq))
+
+for (j in seq_along(x.seq)){
+  for (i in seq_along(y.seq)){
+    z[i,j] <- S(x.seq[j], y.seq[i])
+  }
+}
+
+#z <- outer(x.seq, y.seq, S)
+
+#save(z, file = "z_rho.Rdata")
+
+```
+
+```{r}
+x <- x.seq
+y <- y.seq
+fig <- plot_ly(
+  type = 'surface',
+  # contours = list(
+  #   z = list(show = TRUE, start = 0, end = max(z), size = 0.02)),
+  x = ~x,
+  y = ~y,
+  z = ~z
+)
+fig <- fig %>% layout(
+    scene = list(
+      xaxis = list(nticks = 10, title = "rho.low"),
+      yaxis = list(nticks = 10, title = "rho.up"),
+      zaxis = list(nticks = 10, title = "x1.opt"),
+      camera = list(eye = list(x = -1, y = 0, z = 0)),
+      aspectratio = list(x = .9, y = .8, z = .6)))
+fig
+```
+
+#### tuning parameter
+
+(learn how to better interpret the results.)
+
+# Eigenvalue decomposition
+
+(show the geometric result)
+
+# Optimization procedure
+
+```{r}
+opt.ambcen(c(0.2,0.4), c(1,2), rho = c(0.3, 0.5))
+opt.ambcen(c(0.2,0.8), c(1,1.2), rho = c(0.3, 0.5))
+```
+
+```{r}
+#simulation study 
+#consider two risky assets
+#provide the variance interval
+```
+
+# Directly visualize the function
+
+## Setup
+
+```{r}
+#check sigma
+d <- 1e-4
+x.seq <- seq(d, 1-d,d)
+
+# sd1 <- c(0.25, 1)
+# sd2 <- c(0.75, 2)
+
+sd1 <- c(0.5, 2)
+sd2 <- c(2.5, 3)
+sd1.c <- mean(sd1)
+sd2.c <- mean(sd2)
+
+s.set <- rep(sd1, each=2)/rep(sd2, 2)
+rhol  <- -0.8
+
+sd1[1]*sd2[2] < sd1[2]*sd2[1]
+
+rhol^2 > (sd1[1]*sd2[1])/(sd1[2]*sd2[2])
+
+rhol^2 < sd1[1]/sd1[2]
+
+# s.set.sort <- sort(c(s.set*(-rhol), 
+#                      1/s.set*(-rhol)
+#                      #s.set/(-rhol), 
+#                      #1/(s.set*(-rhol))
+#                      ))
+# r.thres <- s.set.sort
+# x.thres <- 1/(1+r.thres)
+
+# r1 <- sd2[1]/(sd1[2]*(-rhol))
+# r2 <- (sd1[1]*(-rhol))/sd2[2]
+
+```
+
+```{r min var}
+#important note
+#the meaning of lower, upper in optim() is important!
+re.mat <- matrix(NA, nrow = length(x.seq), ncol = 2)
+val.seq <- numeric(length(x.seq))
+for (i in seq_along(x.seq)){
+ x1 <- x.seq[i]
+ re <- optim(c(sd1.c,sd2.c), function(s) H(s[1],s[2], rho = rhol, x1 = x1), 
+            lower = c(sd1[1], sd2[1]), 
+            upper = c(sd1[2], sd2[2]), 
+            method = "L-BFGS-B")
+ #not lower=sd1, upper=sd2
+ re.mat[i,]<- re$par 
+ #get the min value
+ val.seq[i] <- re$value
+}
+#any(is.nan(re.mat[,2]))
+#re.mat
+summary(re.mat[,1])
+summary(re.mat[,2])
+
+# optim(c(1,1,1), function(x) sum(x^2), lower = c(0,0,0), upper = c(2,2,2), method = "L-BFGS-B")
+```
+
+```{r}
+#r1 <- 1/abs(rhol)
+#x.thres1 <- c(x.thres, 1/(1+r1))
+matplot(x.seq, re.mat, type = "l", main = paste0("min cov ","\n", "with sd1 = ", "[", sd1[1], ",", sd1[2],"], ",
+        "sd2 = ", "[", sd2[1], ",", sd2[2],"]"), lty = c(1,1))
+
+abline(v = x.thres.f(s.set*(-rhol))[c(1,2)], lty = 2, col = "purple")
+
+abline(v = x.thres.f(s.set/(-rhol))[c(1,3)], lty = 2, col = "blue")
+
+# abline(v = x.thres.f((-rhol)/s.set), lty = 2, col = "brown")
+# abline(v = x.thres.f(1/(s.set*(-rhol))), lty = 2, col = "pink")
+#abline(v = x.thres.f(s.set/(-rhol)), lty = 1:4, col = 1:4)
+
+#I have got it!
+```
+
+```{r}
+plot(x.seq, val.seq, type = "l")
+abline(v = x.thres.f(s.set*(-rhol))[c(1,2)], lty = 2, col = "purple")
+abline(v = x.thres.f(s.set/(-rhol))[c(1,3)], lty = 2, col = "blue")
+```
+
+```{r}
+t.break <- c(x.thres.f(s.set/(-rhol))[c(3,1)], 
+             x.thres.f(s.set*(-rhol))[c(1,2)])
+
+re.mat.c <- matrix(NA, ncol=2, nrow = length(x.seq))
+
+sdl1 <- sd1[1]
+sdr1 <- sd1[2]
+sdl2 <- sd2[1]
+sdr2 <- sd2[2]
+
+q <- 1/(-rhol)
+#check the function 
+for (i in seq_along(x.seq)){
+ x1 <- x.seq[i]
+ x2 <- 1-x1
+ r <- x2/x1 
+ if (x1 <= t.break[1]){
+   re.mat.c[i,] <- c(sdr1, sdl2)
+ } else if (x1 <= t.break[2]) {
+   re.mat.c[i,] <- c(r*sdl2/q, sdl2)
+ } else if (x1 <= t.break[3]) {
+   re.mat.c[i,] <- c(sdl1, sdl2)
+ } else if (x1 <= t.break[4]) {
+   re.mat.c[i,] <- c(sdl1, sdl1/(r*q))
+ } else {
+   re.mat.c[i,] <- c(sdl1, sdr2)
+ }
+ 
+#as x1 increases, r decreases 
+ # if (r <= r.break[1]){
+ #   re.mat.c[i,] <- c(sdl1, sdr2)
+ # } else if (r <= r.break[2]) {
+ #   re.mat.c[i,] <- c(sdl1, q*sdl1/r)
+ # } else if (r <= r.break[3]) {
+ #   re.mat.c[i,] <- c(sdl1, sdl2)
+ # } else if (r <= r.break[4]) {
+ #   re.mat.c[i,] <- c(r*sdl2/q, sdl2)
+ # } else {
+ #   re.mat.c[i,] <- c(sdr1, sdl2)
+ # }
+ 
+}
+
+
+matplot(x.seq, re.mat.c, type = "l", main = paste0("min cov.check ","\n", "with sd1 = ", "[", sd1[1], ",", sd1[2],"], ",
+        "sd2 = ", "[", sd2[1], ",", sd2[2],"]"), lty = c(1,1), ylim = c(0.5, 3))
+
+abline(v = x.thres.f(s.set*(-rhol))[c(1,2)], lty = 2, col = "purple")
+
+abline(v = x.thres.f(s.set/(-rhol))[c(1,3)], lty = 2, col = "blue")
+
+```
+
+```{r}
+r.seq <- (1-x.seq)/x.seq
+matplot(log(r.seq), re.mat, type = "l", lty = c(1,1))
+
+```
+
+```{r}
+re.mat.d <- apply(re.mat, 2, diff)
+matplot(x.seq[-1], re.mat.d, type = "l")
+ind1 <- which(re.mat.d[,1]<0)
+x.t1 <- c(min(x.seq[ind1]), max(x.seq[ind1]))
+ind2 <- which(re.mat.d[,2]>0)
+x.t2 <- c(min(x.seq[ind2]), max(x.seq[ind2]))
+```
+
+```{r}
+x.t <- c(x.t1, x.t2)
+x.t
+#x.t*(-rhol)
+r.t <- (1-x.t)/x.t
+r.t
+
+r.t*(-rhol)
+r.t/(-rhol)
+```
+
+```{r max var}
+rhor <- -0.2
+# x.seq <- seq(.01, .99,.001)
+re.mat <- matrix(NA, nrow = length(x.seq), ncol = 2)
+for (i in seq_along(x.seq)){
+ x1 <- x.seq[i]
+ re <- optim(c(1,2), function(s) -H(s[1],s[2], rho = rhor, x1 = x1), 
+            lower = c(sd1[1], sd2[1]), 
+            upper = c(sd1[2], sd2[2]), 
+            method = "L-BFGS-B")
+ re.mat[i,]<- re$par 
+}
+
+#re.mat
+
+matplot(x.seq, re.mat, type = "l", main = "max cov", lty = c(1,1))
+#r.seq <- (1-x.seq)/x.seq
+#matplot(r.seq, re.mat, type = "l")
+#re.mat.d <- apply(re.mat, 2, diff)
+#matplot(x.seq[-1], re.mat.d, type = "l")
+```
+
+```{r}
+#check it
+```
+
+```{r}
+tan.theta <- function(x1, rho = -0.5){
+  x2 <- 1-x1
+  a <- 2*x1*x2*rho
+  D <- sqrt((x1^2-x2^2)^2 + a^2)
+  b <- x1^2-x2^2 + D
+  a/b
+}
+plot(tan.theta, from = 0, to = 1)
+#tan.theta(0)
+tan.theta(1)
+```
+
+```{r}
+theta.f <- function(x1, rho = -0.5){
+  if(x1==0) return(pi/2)
+  if(x1==1) return(0)
+  x2 <- 1-x1
+  a <- 2*x1*x2*rho
+  D <- sqrt((x1^2-x2^2)^2 + a^2)
+  b <- x1^2-x2^2 + D
+  atan(a/b)+pi
+}
+x <- seq(0,1,.01)
+#sapply(x, theta.f)
+plot(x, sapply(x, theta.f), type = "l")
+#plot(theta.f, from = 0, to = 1)
+
+theta.f(0.99999)
+
+# px1 = 0.999
+# x2 <- 1-x1
+# a <- 2*x1*x2*rho
+# D <- sqrt((x1^2-x2^2)^2 + a^2)
+# b <- x1^2-x2^2 + D
+# atan(a/b) 
+  
+```
+
+## Cen-amb graph
+
+Center-ambiguity graph (to see the center and ambiguity of variance interval for a portfolio under different weights)
+
+```{r}
+#check sigma
+d <- 1e-4
+x.seq <- seq(d, 1-d,d)
+
+sd1 <- c(0.25, 1.5)
+sd2 <- c(1, 2)
+
+# sd1 <- c(0.5, 2)
+# sd2 <- c(2.5, 3)
+
+sd1.c <- mean(sd1)
+sd2.c <- mean(sd2)
+
+s.set <- rep(sd1, each=2)/rep(sd2, 2)
+rhol  <- -0.8
+rhor <- -0.2
+
+sd1[1]*sd2[2] < sd1[2]*sd2[1]
+
+rhol^2 > (sd1[1]*sd2[1])/(sd1[2]*sd2[2])
+
+rhol^2 < sd1[1]/sd1[2]
+
+title.main <- paste0("sd1 = ", "[", sd1[1], ",", sd1[2],"], ", "sd2 = ", "[", sd2[1], ",", sd2[2],"]", ", ", 
+                     "rho = ", "[", rhol, ",", rhor,"]")
+print(title.main)
+```
+
+```{r cen-amb plot}
+#important note
+#the meaning of lower, upper in optim() is important!
+# re.mat <- matrix(NA, nrow = length(x.seq), ncol = 2)
+val.min.seq <- val.max.seq <- numeric(length(x.seq))
+for (i in seq_along(x.seq)){
+ x1 <- x.seq[i]
+ #min var
+ re.min <- optim(c(sd1.c,sd2.c), function(s) H(s[1],s[2], rho = rhol, x1 = x1), 
+            lower = c(sd1[1], sd2[1]), 
+            upper = c(sd1[2], sd2[2]), 
+            method = "L-BFGS-B")
+ val.min.seq[i] <- re.min$value
+ #max var
+ re.max <- optim(c(sd1.c,sd2.c), function(s) -H(s[1],s[2], rho = rhor, x1 = x1), 
+            lower = c(sd1[1], sd2[1]), 
+            upper = c(sd1[2], sd2[2]), 
+            method = "L-BFGS-B")
+ val.max.seq[i] <- -re.max$value
+}
+
+matplot(x.seq, cbind(val.min.seq,val.max.seq), type = "l", lty = c(1,1), main = title.main)
+#center
+var.cen.seq <- (val.min.seq+val.max.seq)/2
+
+plot(x.seq, var.cen.seq, type = "l",
+        main = title.main)
+
+
+#amb
+var.amb.seq <- val.max.seq - val.min.seq
+
+plot(x.seq, var.amb.seq, type = "l",
+        main = title.main)
+
+#plot it 
+plot(var.cen.seq, var.amb.seq,
+        main = title.main, type = "p")
+
+
+
+#minimizer is very close to each other
+matplot(x.seq, cbind(var.cen.seq,var.amb.seq), type = "l", lty = c(1,1), main = title.main)
+
+abline(v = x.seq[which.min(var.cen.seq)], col = 1, lty=2)
+abline(v = x.seq[which.min(var.amb.seq)], col = 2, lty=2)
+```
+
+```{r}
+library(ggplot2)
+x1 <- x.seq
+dat1 <- data.frame(x=var.cen.seq, y=var.amb.seq)
+ggplot(dat1, aes(x=x, y=y)) + geom_point(aes(colour = x1)) + xlab("Var.center") + ylab("Var.amb") + ggtitle(title.main) +
+scale_colour_gradient(low = "#00FFFF", high = "#000099")
+#scale_colour_gradient(low = "lightblue", high = "darkblue")
+#use different color to show the value of x1
+#similar to efficient frontier 
+```
+
+It seems that there is a unique minimizer for smallest cen and ambiguity for a large class of objective function (linear combinations of center and ambiguity, use sum of square of two components). The minimizer does not depend much on the format of the function.
+
+The mean part will also change monotonically w.r.t $x1$, because $$
+\mu = x_1\mu_1 + x_2\mu_2
+$$
+
+```{r}
+#write a function 
+#plot.ambcen
+plot.ambcen.var(sd1 = c(0.25, 1.5), sd2 = c(1,2), rho = c(-0.8, -0.2))
+
+plot.ambcen.var(sd1 = c(0.25, 1.5), sd2 = c(1,2), rho = c(-0.8, 0.2))
+```
+
+```{r}
+plot.ambcen.var(sd1 = c(0.5, 2.26), sd2 = c(1,2.03), rho = c(-0.8, -0.4))
+#we can notice some "discontinuity" 
+#it should only come from some numerical issues, and the current x1 may go through some threshold. 
+```
+
+```{r}
+# plot.ambcen.var(sd1 = c(0.2, 1), sd2 = c(1.2,2.4), 
+#                 rho = c(-0.8, -0.2))
+```
+
+(Do we also want to consider the mean part in this picture?)
+
+```{r, eval=FALSE}
+#create a shiny app if needed 
+#We can also change how the amb-cen curve changes depending on the parameter setup
+#to let user change the parameter in a convenient way
+
+#show the optimal x1 by drawing a straight line or using a circle (to better show the objective function)
+
+library(shiny)
+
+ui <- basicPage(
+  plotOutput("plot1", click = "plot_click"),
+  verbatimTextOutput("info")
+)
+
+server <- function(input, output) {
+  output$plot1 <- renderPlot({
+    plot(mtcars$wt, mtcars$mpg)
+  })
+
+  output$info <- renderText({
+    paste0("x=", input$plot_click$x, "\ny=", input$plot_click$y)
+  })
+}
+
+shinyApp(ui, server)
+```
+
+## Min-max var plot
+
+```{r min-max var plot}
+x1 <- x.seq
+dat1 <- data.frame(x=val.min.seq, y=val.max.seq)
+ggplot(dat1, aes(x=x, y=y)) + geom_point(aes(colour = x1)) + xlab("Var.min") + ylab("Var.max") + ggtitle(title.main) +
+scale_colour_gradient(low = "#00FFFF", high = "#000099")
+#it becomes harder to see
+```
+
+```{r}
+plot.ambcen.var(sd1 = c(0.25, 1.5), sd2 = c(1,2), rho = c(-0.8, -0.2),
+                plot.minmax.var = TRUE)
+
+plot.ambcen.var(sd1 = c(0.25, 1.5), sd2 = c(1,2), rho = c(-0.8, 0.2), 
+                plot.minmax.var = TRUE)
+```
+
+```{r}
+re <- plot.ambcen.var(sd1 = c(0.2, 2), sd2 = c(1,1.8), rho = c(-0.5, 0.5),
+                weight.obj = 0.5, plot.minmax.var = FALSE, 
+                return.ind = TRUE, plot.ind = TRUE)
+```
+
+```{r}
+#check the break point
+weight.seq <- seq(0.1, 0.9, .1)
+x.opt.seq <- numeric(length(weight.seq))
+for (i in seq_along(weight.seq)){
+  w <- weight.seq[i]
+  re <- plot.ambcen.var(sd1 = c(0.2, 2), sd2 = c(1,1.8), 
+                        rho = c(-0.5, 0.5),
+                weight.obj = w, plot.minmax.var = FALSE, 
+                return.ind = TRUE, plot.ind = FALSE)
+  x.opt.seq[i] <- re$x1.opt
+}
+
+```
+
+```{r}
+plot(weight.seq, x.opt.seq, type = "l") #it will go through a dramatic change
+```
+
+```{r}
+re <- plot.ambcen.var(sd1 = c(0.2, 2), sd2 = c(1,1.8), rho = c(-0.5, -0.4),
+                weight.obj = 0.5, plot.minmax.var = FALSE, 
+                return.ind = TRUE, plot.ind = TRUE)
+any(is.na(re$var.cen.seq))
+any(is.na(re$var.amb.seq))
+```
+
+```{r}
+x.opt.seq2 <- numeric(length(weight.seq))
+for (i in seq_along(weight.seq)){
+  w <- weight.seq[i]
+  re <- plot.ambcen.var(sd1 = c(0.5, 3), sd2 = c(1,3), rho = c(-0.5, -0.4),
+                weight.obj = w, plot.minmax.var = FALSE, 
+                return.ind = TRUE, plot.ind = FALSE)
+  x.opt.seq2[i] <- re$x1.opt
+}
+```
+
+```{r}
+plot(weight.seq, x.opt.seq2, type = "l") #it is not a dramatic change 
+#the optimal portfolio is robust to the choice of the weight in the objective function (the sharper or narrower the nose is, the less sensitive it will become.)
+```
+
+## Dynamic programming
+
+```{r}
+#write a function by ourselves
+h1 <- function(sig2, x1 = 0.5, rhol = -0.5, 
+               sd1 = c(0.5, 2.0)){
+  re <- optimize(function(sig1) H(sig1=sig1, sig2=sig2, 
+                                  rho = rhol, x1 = x1), 
+                 interval = sd1)
+  re$objective
+}
+
+h1(2)
+```
+
+```{r}
+plot(Vectorize(h1), from = 0.1, to = 5)
+#create a shiny app if needed
+```
+
+# A data sequence example
+
+```{r}
+#generate bivariate semi-G-normal 
+library(MASS)
+
+sd.mat0 <- matrix(c(1,3, 
+                    2,4), 2, 2, byrow = TRUE)
+#mu.vec <- matrix(c(1, 2), 2, 1)
+rho.vec <- c(0.2,0.4)
+
+#consider the blocking design
+
+#then directly consider the optimization problem 
+
+#traditional way 
+
+#blocking way 
+
+#plot the variance of the portfolio 
+
+```
+
+```{r}
+#perform rebalancing if needed
+
+#also consider risk-free asset if needed 
+```
+

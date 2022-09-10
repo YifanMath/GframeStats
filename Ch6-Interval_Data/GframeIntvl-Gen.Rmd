@@ -1,0 +1,2227 @@
+---
+title: 'Discussion Notes: Interval Data and G-expectation Framework'
+author: "Yifan Li"
+date: "10/05/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction 
+
+This is a general document for all the R notes in the early development of the interval data and the $G$-expectation framework. 
+
+# Toolbox Setup 
+
+```{r}
+source("GframeIntvl.R")
+```
+
+# G-version Distributions
+
+Pseudo simulation in the following sense:
+
+- it is based on pseudo random generation (the same as the simulation of classical single-valued distributions.)
+
+- The uncertainty set in the representation of a $G$-version distribution matches The set of distributions represented by the interval data. More details can be found in: 
+
+- `GframeIntvl-TS-doc.pdf`: it implements the data experiments in the context of interval-valued time series (directed intervals). 
+- `Gframe-IntervalData-GeneralNotes.pdf`: it studies the theoretical setup of the interval-valued data (in the context of directed intervals). 
+
+## Maximal Distribution
+
+```{r}
+z <- rmaximal.intvl(100)
+plot.intvl(z)
+```
+
+```{r}
+z2 <- rmaximal.intvl(1e2, mean.intvl = c(-1,2))
+plot.intvl(z2)
+```
+
+```{r}
+#input (Z,1-Z)
+
+```
+
+## Semi-G-normal 
+
+```{r}
+set.seed(123)
+sdl <- 1
+sdr <- 2
+sub.ind <- seq_len(1e2)
+#w <- rsemiGnorm.intvl(1e4, sd.intvl = c(-1,2))
+w <- rsemiGnorm.intvl(5e3, sd.intvl = c(1,2))
+plot.intvl(w[sub.ind,])
+ggsave("Figs/plot-semignorm-intvl.png")
+```
+
+```{r}
+w.obs <- apply.intvl(w, function(x) x)
+plot.intvl(w.obs[sub.ind,])
+```
+
+The problem of identifiability, 
+so far we prefer to use sd.intvl which is positive
+```{r}
+#check its mean by LLN
+w.seq.cummean <- apply(w, 2, cummean)
+plot.intvl(w.seq.cummean)
+ggsave("Figs/lln-semignorm-mean.png")
+```
+
+```{r}
+#check the mean of the center
+w.seq.cen <- apply.intvl0(w, mean)
+w.seq.cen.cummean <- cummean(w.seq.cen)
+
+plot(w.seq.cen.cummean, type = "l")
+abline(h=0, col=2)
+```
+
+```{r}
+#also check the second moment 
+w.sq <- apply.intvl(w, function(x) x^2, ind.optim = TRUE)
+#for sd.intvl = c(-1,2)
+#since the optimal point does not achieve at the two ends, 
+#we need to do the optimization when apply function to the interval
+plot.intvl(w.sq[sub.ind, ])
+```
+
+```{r}
+w.sq.cummean <- apply(w.sq, 2, cummean)
+re <- plot.intvl(w.sq.cummean) #the variance uncertainty is [0,4]
+re + geom_hline(yintercept = c(sdl,sdr)^2, colour = "brown")
+ggsave("Figs/lln-semignorm-sqmean.png")
+```
+
+```{r}
+#check the 3rd moment
+#it is a monotone function, we need to keep the direction
+w.cb <- apply.intvl0(w, function(x) x^3)
+#since the optimal point does not achieve at the two ends, 
+#we need to do the optimization when apply function to the interval
+plot.intvl(w.cb[sub.ind, ])
+#it will be a different story if we use 
+#w.cb <- apply.intvl(w, function(x) x^3)
+```
+
+```{r}
+plot.intvl(apply(w.cb, 2, cummean))
+```
+
+```{r}
+#how about sin(x)? 
+w.sin <- apply.intvl0(w, function(x) sin(x))
+#since the optimal point does not achieve at the two ends, 
+#we need to do the optimization when apply function to the interval
+#keep the direction 
+plot.intvl(w.sin[sub.ind, ])
+
+plot.intvl(apply(w.sin, 2, cummean))
+```
+
+```{r}
+#how about cos(x)? 
+w.cos <- apply.intvl(w, function(x) cos(x), ind.optim = TRUE)
+#since the optimal point does not achieve at the two ends, 
+#we need to do the optimization when apply function to the interval
+plot.intvl(w.cos[sub.ind, ])
+
+plot.intvl(apply(w.cos, 2, cummean)) #it should have uncertainty under cos function
+```
+
+Essentially, the sequential independence is described by the G-EM procedure. The sample path we have shown before can be used to show the sublinear expectation in a Monte Carlo way under $\varphi(x)=x^n$. 
+
+```{r}
+#how about x^2 + x^3? 
+#how about sin(x) + cos(x)? 
+#then we need to go through the G-EM procedure
+#E[varphi(z*y)]
+# n <- 1e3
+# z <- rmaximal.intvl(n, mean.intvl = c(1,2))
+# #z <- intvl(1,2)
+# y.uni <- rnorm(n)
+# y <- intvl(y.uni, y.uni)
+# varphi <- function(x) x^2+x^3
+# varphi.cummean <- y
+# for (i in 2:n){
+#   y.sub <- y[seq_len(i),]
+#   varphi.z <- function(z) {
+#     zy.sub <- apply.intvl(z*y.sub, varphi)
+#     apply(zy.sub, 2, mean)
+#   }
+#   #z is a vector
+#   #varphi.z.l <- Vectorize(function(z) varphi.z(z)["left"])
+#   arphi.z.l <- function(z) varphi.z(z)["left"]
+#   #varphi.z.r <- Vectorize(function(z) varphi.z(z)["right"])
+#   #intvlexpt.est <- apply(varphi.z(z), 2, mean)
+#   #apply an interval-valued function to an interval
+#   intvlexpt.est.l <- apply.intvl(z[i,], varphi.z.l, 
+#                                  ind.optim = FALSE)
+#   intvlexpt.est.r <- apply.intvl(z[i,], varphi.z.r, 
+#                                  ind.optim = TRUE)
+#   varphi.cummean[i, ] <- c(intvlexpt.est.l, intvlexpt.est.r)
+# }
+```
+
+
+```{r}
+#write a function for G-EM
+#apply interval function to an interval 
+```
+
+
+## Type II semi-G-normal 
+
+```{r}
+# set.seed(123)
+# sub.ind <- seq_len(1e2)
+# w <- rsemiGnorm.intvl(5e3, sd.intvl = c(1,2))
+# plot.intvl(w[sub.ind,])
+
+#this is a plot of the type II semi-G-normal
+w.obs <- apply.intvl(w, function(x) x)
+w2 <- w.obs
+plot.intvl(w2[sub.ind,])
+ggsave("Figs/plot-semignorm2-intvl.png")
+```
+
+```{r}
+#check its mean by LLN
+w.seq.cummean <- apply(w2, 2, cummean)
+#plot.intvl(w.seq.cummean)
+
+re <- plot.intvl(w.seq.cummean)
+
+sdr <- 2
+sdl <- 1
+par.true <- c(-1,1)*(1/2)*(sdr-sdl)*sqrt(2/pi)
+p1 <- re + geom_hline(yintercept = par.true, colour = "brown")
+p1 
+#ggsave("Figs/lln-semignorm2-mean.png")
+#add two horizontal lines 
+#to show the sublinear expectations
+```
+
+```{r}
+#check the mean of the center
+# w.seq.cen <- apply.intvl0(w, mean)
+# w.seq.cen.cummean <- cummean(w.seq.cen)
+# 
+# plot(w.seq.cen.cummean, type = "l")
+# abline(h=0, col=2)
+```
+
+```{r}
+#also check the second moment 
+w2.sq <- apply.intvl(w2, function(x) x^2, ind.optim = TRUE)
+#since the optimal point does not achieve at the two ends, 
+#we need to do the optimization when apply function to the interval
+plot.intvl(w2.sq[sub.ind, ])
+```
+
+```{r}
+w2.sq.cummean <- apply(w2.sq, 2, cummean)
+re <- plot.intvl(w2.sq.cummean) #the variance uncertainty is [0,4]
+
+sdr <- 2
+sdl <- 1
+par.true <- c(sdl,sdr)^2
+p1 <- re + geom_hline(yintercept = par.true, colour = "brown")
+p1 
+ggsave("Figs/lln-semignorm2-sqmean.png")
+#the same as w.sq.cummean
+```
+
+```{r}
+#check the 3rd moment
+#it is a monotone function, we need to keep the direction
+w.cb <- apply.intvl0(w, function(x) x^3)
+#since the optimal point does not achieve at the two ends, 
+#we need to do the optimization when apply function to the interval
+plot.intvl(w.cb[sub.ind, ])
+#it will be a different story if we use 
+#w.cb <- apply.intvl(w, function(x) x^3)
+```
+
+```{r}
+plot.intvl(apply(w.cb, 2, cummean))
+```
+
+```{r}
+#how about sin(x)? 
+w.sin <- apply.intvl0(w, function(x) sin(x))
+#since the optimal point does not achieve at the two ends, 
+#we need to do the optimization when apply function to the interval
+#keep the direction 
+plot.intvl(w.sin[sub.ind, ])
+
+plot.intvl(apply(w.sin, 2, cummean))
+```
+
+```{r}
+#how about cos(x)? 
+w.cos <- apply.intvl(w, function(x) cos(x), ind.optim = TRUE)
+#since the optimal point does not achieve at the two ends, 
+#we need to do the optimization when apply function to the interval
+plot.intvl(w.cos[sub.ind, ])
+
+plot.intvl(apply(w.cos, 2, cummean)) #it should have uncertainty under cos function
+```
+
+Essentially, the sequential independence is described by the G-EM procedure. The sample path we have shown before can be used to show the sublinear expectation in a Monte Carlo way under $\varphi(x)=x^n$. 
+
+```{r}
+#how about x^2 + x^3? 
+#how about sin(x) + cos(x)? 
+#then we need to go through the G-EM procedure
+#E[varphi(z*y)]
+# n <- 1e3
+# z <- rmaximal.intvl(n, mean.intvl = c(1,2))
+# #z <- intvl(1,2)
+# y.uni <- rnorm(n)
+# y <- intvl(y.uni, y.uni)
+# varphi <- function(x) x^2+x^3
+# varphi.cummean <- y
+# for (i in 2:n){
+#   y.sub <- y[seq_len(i),]
+#   varphi.z <- function(z) {
+#     zy.sub <- apply.intvl(z*y.sub, varphi)
+#     apply(zy.sub, 2, mean)
+#   }
+#   #z is a vector
+#   #varphi.z.l <- Vectorize(function(z) varphi.z(z)["left"])
+#   arphi.z.l <- function(z) varphi.z(z)["left"]
+#   #varphi.z.r <- Vectorize(function(z) varphi.z(z)["right"])
+#   #intvlexpt.est <- apply(varphi.z(z), 2, mean)
+#   #apply an interval-valued function to an interval
+#   intvlexpt.est.l <- apply.intvl(z[i,], varphi.z.l, 
+#                                  ind.optim = FALSE)
+#   intvlexpt.est.r <- apply.intvl(z[i,], varphi.z.r, 
+#                                  ind.optim = TRUE)
+#   varphi.cummean[i, ] <- c(intvlexpt.est.l, intvlexpt.est.r)
+# }
+```
+
+
+```{r}
+#write a function for G-EM
+#apply interval function to an interval 
+```
+
+```{r}
+
+```
+
+
+# Improved G-EM (Iterative Algorithm)
+
+```{r}
+#it will be put in a separate document. 
+```
+
+
+# Sequential Independence
+
+"X --> Y" Y is independent from $X$. It means any realization of X has no effect on the *uncertainty* or ambiguity of the distribution of $Y$. 
+
+## W=Ve vs W=eV
+
+(check the Type II semi-G-normal section)
+
+## W1*W2^2
+
+Check 
+$$
+W_1W^2_2
+$$
+
+```{r}
+set.seed(1234)
+n <- 5e3
+w1.semiGnorm <- rsemiGnorm.intvl(n, sd.intvl = c(1,2))
+w2.semiGnorm <- rsemiGnorm.intvl(n, sd.intvl = c(1,2))
+plot.intvl(w1.semiGnorm[sub.ind,])
+plot.intvl(w2.semiGnorm[sub.ind,])
+#since z = [1,2]>0, y is either >0 or <0, so w=zy does not include zero
+#w2.sq.semiGnorm <- apply.intvl(w2.semiGnorm, function(x) x^2)
+
+w2.sq.semiGnorm <- w2.semiGnorm^2 
+plot.intvl(w2.semiGnorm[seq_len(50),])
+plot.intvl(w2.sq.semiGnorm[seq_len(50),])
+
+```
+
+```{r}
+#W1 --> W2 
+#keep it simple first
+#interval design already saves the uncertainty design across time
+#W2 is the main part 
+#keep the direction the same as the W2 part
+w12.seq1 <- intvl(rep(NA,n), rep(NA,n))
+for (i in seq_len(n)){
+  w12.seq1[i,] <- as.intvl(w1.semiGnorm[i,]*w2.sq.semiGnorm[i,])
+}
+plot.intvl(w12.seq1[sub.ind,])
+ggsave("Figs/plot-w12_seq1.png")
+```
+
+```{r}
+#W2 --> W1 
+#keep it simple first
+#interval design already save the uncertainty design across time
+#W2 is the main part 
+w12.seq2 <- intvl(rep(NA,n), rep(NA,n))
+for (i in seq_len(n)){
+  w12.seq2[i,] <- w2.sq.semiGnorm[i,]*w1.semiGnorm[i,]
+}
+plot.intvl(w12.seq2[sub.ind,])
+ggsave("Figs/plot-w12_seq2.png")
+```
+
+```{r}
+#check the expectation by LLN
+cummean.w12.seq1 <- apply(w12.seq1, 2, cummean)
+cummean.w12.seq2 <- apply(w12.seq2, 2, cummean)
+
+sdl.all <- 1
+sdr.all <- 2
+par.true1 <- (sdr.all^2-sdl.all^2)*sdr.all/sqrt(pi*2)*c(-1,1)
+#W1-->W2 
+#we expect W1W2^2 has mean uncertainty
+re <- plot.intvl(cummean.w12.seq1)
+re + geom_hline(yintercept = par.true1, colour = "brown")
+ggsave("Figs/lln-w1w2sq.png")
+
+#W2-->W1
+#we expect W2^2W1 does not has mean uncertainty
+plot.intvl(cummean.w12.seq2)
+ggsave("Figs/lln-w2sqw1.png")
+#plot.intvl(cummean.w12.seq2[seq_len(2e3), ])
+
+#[-] draw the two theoretical sublinear expectations
+
+```
+
+## SemiGBern
+
+## Bivariate: L and S set
+
+```{r}
+#generate (W1, W2)
+#W1 -S-> W2 
+#W1, W2 semi-G-normal
+n <- 1e4
+set.seed(250881732)
+sd.intvl.true <- c(1,2)
+w1w2.intvl <- array(NA, dim = c(n, 2, 2), dimnames = list(NULL, lr = c("left", "right"), rv = c("w1","w2")))
+for (i in seq_len(n)){
+  v1 <- rmaximal.intvl(1, mean.intvl = sd.intvl.true)
+  v2 <- rmaximal.intvl(1, mean.intvl = sd.intvl.true)
+  y1.uni <- rnorm(1)
+  y1 <- intvl(y1.uni, y1.uni)
+  y2.uni <- rnorm(1)
+  y2 <- intvl(y2.uni, y2.uni)
+  w1 <- v1*y1
+  w2 <- v2*y2
+  w1w2.intvl[i,,] <- cbind(w1,w2)
+}
+
+```
+
+
+```{r}
+sub.ind <- seq_len(1e2)
+w1.intvl <- w1w2.intvl[, ,"w1"]
+w2.intvl <- w1w2.intvl[, ,"w2"]
+w12.sum.intvl <- apply(w1w2.intvl, c(1,2), sum) #apply over row and col, for each row and col, sum up the w1 and w2
+plot.intvl(w1.intvl[sub.ind,])
+plot.intvl(w2.intvl[sub.ind,])
+plot.intvl(w12.sum.intvl[sub.ind,])
+```
+
+```{r}
+#one important thing here
+#if not keeping the direction, it will give a result by treating them all as a proper interval and do the summation 
+w12.sum.cb1 <- apply.intvl(w12.sum.intvl, function(x) x^3)
+
+w12.sum.cb.cummean1 <- apply(w12.sum.cb1, 2, cummean)
+
+plot.intvl(w12.sum.cb.cummean1)
+#it seems also convergence
+#what is this skewness? 
+#check whether it converges or not (use Cauchy criteria)
+```
+
+```{r}
+plot.intvl(w12.sum.cb1[sub.ind,])
+```
+
+```{r}
+#check the 3rd moment of the W1+W2
+#if not keeping the direction, it will give a result by treating them all as a proper interval and do the summation 
+#w12.sum.cb <- apply.intvl(w12.sum.intvl, function(x) x^3)
+#keep the direction
+w12.sum.cb <- apply.intvl0(w12.sum.intvl, function(x) x^3)
+#or 
+#w12.sum.cb <- w12.sum.intvl^3 
+w12.sum.cb.cummean <- apply(w12.sum.cb, 2, cummean)
+
+plot.intvl(w12.sum.cb.cummean)
+```
+
+```{r}
+#function rule under sequential independence 
+#for two intvl random variables
+#so that we can retrieve the sequential independence results
+apply.varphi.seqind1 <- function(x.intvl, y.intvl, varphi = function(x,y) x*y){
+  #X --> Y
+  #Y is the main part
+  #Y is a proper interval
+  varphi.x <- function(y) varphi(x=x, y)
+  #keep the direction the same as y
+  re1 <- varphi.x()
+}
+
+```
+
+```{r}
+#generate (W1, W2)
+#W1-->W2 
+#W1, W2 semi-G-normal
+n <- 5e2
+sd.intvl.true <- c(1,2)
+w1w2.intvl <- array(NA, dim = c(n, 2, 2), dimnames = list(NULL, c("left", "right"), NULL))
+w1w2.sum.seqind <- NA.intvl(n)
+for (i in seq_len(n)){
+  v1 <- rmaximal.intvl(1, mean.intvl = sd.intvl.true)
+  y1.uni <- rnorm(1)
+  y1 <- intvl(y1.uni, y1.uni)
+  #how to show the path dependence
+  w1 <- v1*y1
+  #y1 --> v2
+  #v2 is the main part
+  #how to show this intuition 
+  #how to impose this relation
+  #v2 #only show the two ends
+  
+  
+  #try version 1
+  v2 <- rmaximal.intvl(1, mean.intvl = sd.intvl.true)
+  y2.uni <- rnorm(1)
+  y2 <- intvl(y2.uni, y2.uni)
+  w2 <- v2*y2
+  w1w2.sum.seqind[i] <- as.intvl(w1+w2)
+}
+v1 <- rmaximal.intvl(n, mean.intvl = sd.intvl.true)
+y1.uni <- rnorm(n)
+y1 <- intvl(y1.uni, y1.uni)
+
+```
+
+```{r}
+#we can also generate w1 and w2 in the two-semi-period situation
+#v2 depends on the B(1/2)
+
+
+```
+
+# CLT and LLN
+
+## Square of Semi-G-norm
+
+```{r}
+n <- 1e3
+set.seed(1234)
+y <- rnorm(n)
+y.intvl <- intvl(y,y)
+z1 <- rmaximal.intvl(n, c(1,2))
+z2 <- rmaximal.intvl(n, c(-1,2))
+z3 <- rmaximal.intvl(n, c(-2,1))
+z4 <- rmaximal.intvl(n, c(-2,-1))
+#it actually gives us a hint on how to do the sequential independence in this situation
+sd.mat0 <- rbind(c(1,2), c(-1,2), c(-2,1), c(-2,-1))
+ind.sd <- sample(1:4, n, replace = TRUE)
+sd.mat <- sd.mat0[ind.sd,]
+z5 <- mat2intvl(sd.mat)
+w1 <- w2 <- w3 <- w4 <- w5 <- NA.intvl(n)
+w.list <- list(w1=w1, w2=w2, w3=w3, w4=w4, w5=w5)
+z.list <- list(z1=z1, z2=z2, z3=z3, z4=z4, z5=z5)
+#key point here: Z-->Y 
+for (k in seq_along(w.list)){
+  w.list[[k]] <- z.list[[k]]*y.intvl
+}
+# for (i in seq_len(n)){
+#   w1[i,] <- z1[i,]*y.intvl[i,]
+#   w2[i,] <- z2[i,]*y.intvl[i,]
+#   w3[i,] <- z3[i,]*y.intvl[i,]
+#   w4[i,] <- z4[i,]*y.intvl[i,]
+# }
+
+sub.ind <- seq_len(1e2)
+for (k in seq_along(w.list)){
+  plot.intvl(w.list[[k]][sub.ind,])
+}
+
+# plot.intvl(w1[sub.ind,])
+# plot.intvl(w2[sub.ind,])
+# plot.intvl(w3[sub.ind,])
+# plot.intvl(w4[sub.ind,])
+
+```
+
+```{r}
+#transform them into observable ones
+w.obs.list <- w.list
+for (k in seq_along(w.list)){
+  w.obs.list[[k]] <- as.propintvl(w.list[[k]])
+  plot.intvl(w.obs.list[[k]][sub.ind,])
+}
+# w1.obs <- as.propintvl(w1)
+# w2.obs <- as.propintvl(w2)
+# w3.obs <- as.propintvl(w3)
+# w4.obs <- as.propintvl(w4)
+# 
+# plot.intvl(w1.obs[sub.ind,])
+# plot.intvl(w2.obs[sub.ind,])
+# plot.intvl(w3.obs[sub.ind,])
+# plot.intvl(w4.obs[sub.ind,])
+```
+
+```{r}
+w.cummean.list <- w.list
+for (k in seq_along(w.list)){
+  w.cummean.list[[k]] <- apply(w.list[[k]], 2, cummean)
+  plot.intvl(w.cummean.list[[k]])
+}
+#w1.cummean <- apply(w1)
+#they all have mean certainty
+```
+
+```{r}
+w.sq.list <- w.sq.cummean.list <- w.list
+for (k in seq_along(w.list)){
+  w.sq.list[[k]] <- apply.intvl(w.list[[k]], function(x) x^2)
+  w.sq.cummean.list[[k]] <- apply(w.sq.list[[k]], 2, cummean)
+  plot.intvl(w.sq.cummean.list[[k]])
+}
+
+#they all have the same variance uncertainty 
+#by checking the LLN
+
+# w1.sq <- apply.intvl(w1, function(x) x^2)
+# w2.sq <- apply.intvl(w2, function(x) x^2)
+# w3.sq <- apply.intvl(w3, function(x) x^2)
+# w4.sq <- apply.intvl(w4, function(x) x^2)
+# 
+# #they are the same under the square transformation
+# plot.intvl(w1.sq[sub.ind,])
+# plot.intvl(w2.sq[sub.ind,])
+# plot.intvl(w3.sq[sub.ind,])
+# plot.intvl(w4.sq[sub.ind,])
+```
+
+```{r}
+w.cb.list <- w.cb.cummean.list <- w.list
+for (k in seq_along(w.list)){
+  #keep the same direction of the interval
+  w.cb.list[[k]] <- apply.intvl0(w.list[[k]], function(x) x^3)
+  w.cb.cummean.list[[k]] <- apply(w.cb.list[[k]], 2, cummean)
+  plot.intvl(w.cb.cummean.list[[k]])
+}
+#they all have 3rd moment certainty which is zero
+#so it must have skewness certainty 
+```
+
+```{r}
+w.cb.list2 <- w.cb.cummean.list2 <- w.list
+#if we force the interval to be the proper one, check the 3rd moment
+for (k in seq_along(w.list)){
+  #keep the same direction of the interval
+  w.cb.list2[[k]] <- apply.intvl(w.list[[k]], function(x) x^3)
+  w.cb.cummean.list2[[k]] <- apply(w.cb.list2[[k]], 2, cummean)
+  plot.intvl(w.cb.cummean.list2[[k]])
+}
+```
+
+These are the simulation check of the asymptotic theory under the interval data setup. 
+
+One purpose here is to validate the LLN under this context and also provide the foundation for the estimation method. 
+
+## CLT: semi-G-normal increments 
+
+This is one attempt. 
+
+```{r}
+n <- 1e3
+sub.ind <- seq_len(1e2)
+sum.r.seq <- replicate(5e2, {
+  w <- rsemiGnorm.intvl(n, sd.intvl = c(0.5,1))
+#plot.intvl(w[sub.ind,])
+#only consider the upper end
+
+  w.prop <- as.propintvl(w)
+#plot.intvl(w.prop[sub.ind,])
+  sum.r <- sum(w.prop[,2])/sqrt(n)
+  sum.r
+})
+
+cb.r.seq <- sum.r.seq^3
+
+mean(cb.r.seq)
+hist(cb.r.seq)
+
+#if we always only consider the upper end, 
+  #it makes the dynamic of sigma depends on \omega, which is outside our consideration (even not considered in G-frame)
+
+#keep track of both the simulation and the underlying theory
+
+```
+
+
+# Design of the Time Series 
+
+# Estimation
+
+```{r}
+#write it into a function
+#intvl.normal.est
+```
+
+## mu + [sig]ep
+
+(mean certainty and variance uncertainty)
+
+```{r}
+n <- 1e3
+sd.intvl.true <- c(1,2)
+w <- rsemiGnorm.intvl(n, sd.intvl = c(1,1.5))
+w.obs <- as.propintvl(w)
+mu0 <- 1
+#mu0 <- rconstant.intvl(n, c(0,2))
+x <- mu0 + w
+x.obs <- as.propintvl(x)
+```
+
+```{r}
+sub.ind <- seq_len(150)
+plot.intvl(w[sub.ind,])
+plot.intvl(w.obs[sub.ind,])
+plot.intvl(x[sub.ind,])
+plot.intvl(x.obs[sub.ind,])
+#how to do the adjustment to do the estimation
+```
+
+###Use the two ends of the observed intervals
+
+```{r}
+#cdf in theory 
+pnorm.intvlr <- function(x, mu=1, sd.intvl=c(1,2)){
+  sdl <- sd.intvl[1]
+  sdr <- sd.intvl[2]
+  v1 <- pnorm(x, mu, sdl)
+  v2 <- pnorm(x, mu, sdr)
+  #(x<mu)*v1*2 + (x>=mu)*(v1+v2)
+  (x<mu)*v1 + (x>=mu)*v2
+}
+
+dnorm.intvlr <- function(x, mu=1, sd.intvl=c(1,2)){
+  sdl <- sd.intvl[1]
+  sdr <- sd.intvl[2]
+  v1 <- dnorm(x, mu, sdl)
+  v2 <- dnorm(x, mu, sdr)
+  #(x<mu)*v1*2 + (x>=mu)*(v1+v2)
+  (x<mu)*v1 + (x>=mu)*v2
+}
+#pnorm.intvlr(c(1,2))
+
+pnorm.intvll <- function(x, mu=1, sd.intvl=c(1,2)){
+  sdl <- sd.intvl[1]
+  sdr <- sd.intvl[2]
+  v1 <- pnorm(x, mu, sdr)
+  v2 <- pnorm(x, mu, sdl)
+  #(x<mu)*v1*2 + (x>=mu)*(v1+v2)
+  (x<mu)*v1 + (x>=mu)*v2
+}
+
+dnorm.intvll <- function(x, mu=1, sd.intvl=c(1,2)){
+  sdl <- sd.intvl[1]
+  sdr <- sd.intvl[2]
+  v1 <- dnorm(x, mu, sdr)
+  v2 <- dnorm(x, mu, sdl)
+  #(x<mu)*v1*2 + (x>=mu)*(v1+v2)
+  (x<mu)*v1 + (x>=mu)*v2
+}
+
+```
+
+```{r}
+#emp density vs pdf
+x.seq <- seq(-5, 10, .01)
+ylim1 <- c(0,0.4)
+#hist(x.obs[,1], probability = TRUE, ylim = ylim1, breaks = "scott")
+hist(x.obs[,1], probability = TRUE, ylim = ylim1)
+#lines(density(x.obs[,1]), col=2)
+lines(x.seq, dnorm.intvll(x.seq), type = "l", col=2)
+
+#hist(x.obs[,2], probability = TRUE, ylim = ylim1, breaks = "scott")
+hist(x.obs[,2], probability = TRUE, ylim = ylim1)
+#lines(density(x.obs[,2]), col=2)
+lines(x.seq, dnorm.intvlr(x.seq), type = "l", col=2)
+
+#ecdf vs cdf
+plot(ecdf(x.obs[,1]))
+lines(x.seq, pnorm.intvll(x.seq), type = "l", col=2)
+
+plot(ecdf(x.obs[,2]))
+lines(x.seq, pnorm.intvlr(x.seq), type = "l", col=2)
+```
+
+### Compare with G-normal cdf
+
+$$
+\overline{F}_N(x)=V(X\leq x)
+$$
+
+
+$$
+\underline{F}_N(x)=v(X\leq x)
+$$
+For $G$-normal, we have 
+$$
+\overline{F}_N(x)+\underline{F}_N(-x) = 1.
+$$
+
+Therefore, 
+$$
+V(a<X\leq b)=V(X\leq b)-v(X\leq a)=\overline{F}_N(b)-\underline{F}_N(a).
+$$
+
+
+```{r}
+sd.intvl.true <- c(1,2)
+K <- 4*sd.intvl.true[2]
+x.seq <- seq(-8,8,.01)
+pnorm.intvl.seq <- dnorm.intvll(x.seq, mu=0, sd.intvl=sd.intvl.true)
+pGnorm.seq <- dGnorm.upper(x.seq, sdl = sd.intvl.true[1], sdr = sd.intvl.true[2])
+pnorm.cen <- dnorm(x.seq, sd = mean(sd.intvl.true))
+#matplot(x.seq, cbind(pnorm.intvl.seq, pGnorm.seq, pnorm.cen), type = "l")
+#they are actually very similar in terms of tail behaviour
+den.dat <- data.frame(x.seq=x.seq, 
+                      den.Zl=pnorm.intvl.seq,
+                      den.Gnorm.upper=pGnorm.seq, 
+                      den.center=pnorm.cen)
+den.dat2 <- reshape2::melt(den.dat, id.var = "x.seq")
+ggplot(den.dat2, aes(x=x.seq, y=value, colour=variable)) + geom_line(aes(lty=variable))
+```
+
+
+```{r}
+den.dat <- data.frame(x.seq=x.seq, 
+                      den.Zl=pnorm.intvl.seq,
+                      den.Gnorm.upper=pGnorm.seq)
+den.dat2 <- reshape2::melt(den.dat, id.var = "x.seq")
+ggplot(den.dat2, aes(x=x.seq, y=value, colour=variable)) + geom_line() + scale_colour_manual(values=cbPalette)
+```
+
+
+```{r}
+sd.intvl.true <- c(1,2)
+sdl <- sd.intvl.true[1]
+sdr <- sd.intvl.true[2]
+
+K <- 4*sd.intvl.true[2]
+x.seq <- seq(-8,8,.01)
+pnorm.intvl.seq <- dnorm.intvlr(x.seq, mu=0, sd.intvl=sd.intvl.true)
+pGnorm.seq <- dGnorm.lower (x.seq, sdl = sd.intvl.true[1], sdr = sd.intvl.true[2])
+matplot(x.seq, cbind(pnorm.intvl.seq, pGnorm.seq), type = "l")
+```
+
+```{r}
+#sampling from G-normal cdf
+rintvl.norm.l <- function(n, sdl=1, sdr=2) {
+  e <- rnorm(n)
+  sdr*e*(e<=0)+sdl*e*(e>0)
+}
+
+rintvl.norm.r <- function(n, sdl=1, sdr=2) {
+  e <- rnorm(n)
+  sdr*e*(e>=0)+sdl*e*(e<0)
+}
+
+x.intvl <- rsemiGnorm.intvl(5e3, sd.intvl = sd.intvl.true)
+x.intvl.prop <- as.propintvl(x.intvl)
+xl.seq <- x.intvl.prop[,1]
+xr.seq <- x.intvl.prop[,2]
+#xl.seq <- rintvl.norm.l(2e3)
+y.seq <- numeric(0)
+
+for (i in seq_along(xl.seq)){
+  x <- xl.seq[i]
+  B <- rbinom(1, 1, prob = sd.intvl.true[1]/sd.intvl.true[2])
+  #U <- runif(1)
+  #r <- (sdl/sdr)*(x>0) + (x<=0)
+  if (x<=0) {
+    y.seq <- c(y.seq,x)
+  } else if (B==1){
+    y.seq <- c(y.seq,x) 
+  }
+  #if (U<=r) y.seq <- c(y.seq,x)
+}
+
+
+keep1 <- which(xl.seq<=0)
+keep2 <- which(xl.seq>0)
+l1 <- round(length(keep2)*(sdl/sdr))
+l2 <- round(length(keep1)*(sdl/sdr))
+#keep3 <- keep2[seq_len(l)]
+y.seq.upper <- xl.seq[c(keep1, keep2[seq_len(l1)])] 
+y.seq.lower <- xr.seq[c(keep2, keep1[seq_len(l2)])]
+#we may also use U or B to do the rejection 
+#we can think about the flexibility in the interval data generation, (e.g.allow sdl<0)
+#so that we have a more compact way to simulate from pGnorm.cdf. 
+```
+
+```{r}
+x.seq <- seq(-6,6,.01)
+hist(y.seq.upper, probability = TRUE, ylim = c(0,0.3))
+lines(x.seq, dGnorm.upper(x.seq, sdl = sd.intvl.true[1], 
+                          sdr = sd.intvl.true[2]), col=2, lty=2)
+hist(y.seq.lower, probability = TRUE, ylim = c(0,0.3))
+lines(x.seq, dGnorm.lower(x.seq, sdl = sd.intvl.true[1], 
+                          sdr = sd.intvl.true[2]), col=2, lty=2)
+```
+
+```{r}
+#or we can simply use x and -x to do the simulation
+#so that we can get two sample with the same length
+e <- rnorm(5e3)
+xl <- sdr*e*(e<=0)+sdl*e*(e>0) 
+xr <- sdl*e*(e<=0)+sdr*e*(e>0)
+keep1 <- which(xl<=0)
+keep2 <- which(xl>0)
+l1 <- round(length(keep2)*(sdl/sdr))
+#l2 <- round(length(keep1)*(sdl/sdr))
+y.upper1 <- xl[c(keep1, keep2[seq_len(l1)])]
+y.lower1 <- -y.upper1
+#y.lower2 <- xr[keep2. keep1[l2]]
+
+
+x.seq <- seq(-6,6,.01)
+hist(y.upper1, probability = TRUE, ylim = c(0,0.3))
+lines(x.seq, dGnorm.upper(x.seq, sdl = sd.intvl.true[1], 
+                          sdr = sd.intvl.true[2]), col=2, lty=2)
+hist(y.lower1, probability = TRUE, ylim = c(0,0.3))
+lines(x.seq, dGnorm.lower(x.seq, sdl = sd.intvl.true[1], 
+                          sdr = sd.intvl.true[2]), col=2, lty=2)
+```
+
+```{r}
+#try e and -e
+e.seq <- rnorm(5e3)
+
+rpGnorm.reject.intvl <- function(e.seq, sdl=1, sdr=2){
+  M <- (sdl+sdr)/(2*sdr)
+  #m <- n*M*2
+  #e <- rnorm()
+  e <- e.seq
+  xl <- sdr*e*(e<=0)+sdl*e*(e>0) 
+  xr <- sdl*e*(e<=0)+sdr*e*(e>0)
+  keep1 <- which(xl<=0)
+  keep2 <- which(xl>0)
+  B.seq1 <- rbinom(length(keep2), 1, prob = sdl/sdr)
+  B.seq2 <- rbinom(length(keep1), 1, prob = sdl/sdr)
+  y.upper1 <- xl[c(keep1, keep2[B.seq1==1])]
+  y.lower1 <- xr[c(keep2, keep1[B.seq2==1])]
+  #l1 <- round(length(keep2)*(sdl/sdr))
+  
+  e <- -e.seq
+  xl <- sdr*e*(e<=0)+sdl*e*(e>0) 
+  xr <- sdl*e*(e<=0)+sdr*e*(e>0)
+  keep1 <- which(xl<=0)
+  keep2 <- which(xl>0)
+  #B.seq1 <- rbinom(length(keep2), 1, prob = sdl/sdr)
+  #B.seq2 <- rbinom(length(keep1), 1, prob = sdl/sdr)
+  y.upper2 <- xl[c(keep1, keep2[B.seq2==1])]
+  y.lower2 <- xr[c(keep2, keep1[B.seq1==1])]
+  y.lower <- c(y.lower1, y.lower2)
+  y.upper <- c(y.upper1, y.upper2)
+  re <- cbind(y.lower, y.upper)
+  re
+}
+
+re <- rpGnorm.reject.intvl(e.seq, 1,2)
+x.seq <- seq(-6,6,.01)
+hist(re[,2], probability = TRUE, ylim = c(0,0.3), breaks = "scott")
+lines(x.seq, dGnorm.upper(x.seq, sdl = sd.intvl.true[1], 
+                          sdr = sd.intvl.true[2]), col=2, lty=2)
+hist(re[,1], probability = TRUE, ylim = c(0,0.3), breaks = "scott")
+lines(x.seq, dGnorm.lower(x.seq, sdl = sd.intvl.true[1], 
+                          sdr = sd.intvl.true[2]), col=2, lty=2)
+#we may also involve negative sdl to simplify this simulation 
+
+#generate the same length of two samples 
+
+keep1 <- which(xl<=0)
+keep2 <- which(xl>0)
+l1 <- round(length(keep2)*(sdl/sdr))
+#l2 <- round(length(keep1)*(sdl/sdr))
+y.upper1 <- xl[c(keep1, keep2[seq_len(l1)])]
+y.lower1 <- -y.upper1
+```
+
+```{r}
+#implement the rejection sampling 
+sdl <- sd.intvl.true[1]
+sdr <- sd.intvl.true[2]
+
+f_by_cg <- function(x, sdl=1, sdr=2) (sdl/sdr)*(x>0) + (x<=0)
+
+rpGnorm.reject.upper <- function(n){
+  re <- numeric()
+  while(length(re)<n){
+    len <- 2*(n-length(re))
+    X <- rintvl.norm.l(len)
+    U <- runif(len)
+    keep <- which(U < f_by_cg(X))
+    re <- c(re, X[keep])
+  }
+  re[seq_len(n)]
+}
+
+y.seq <- rpGnorm.reject.upper(1e3)
+```
+
+```{r}
+#plot(y.seq, type = "l")
+
+x.seq <- seq(-5,3, .01)
+
+hist(y.seq, probability = TRUE, ylim = c(0,0.3))
+lines(x.seq, dGnorm.upper(x.seq, sdl = sd.intvl.true[1], 
+                          sdr = sd.intvl.true[2]), col=2, lty=2)
+```
+
+
+
+
+### semi-G-normal
+```{r}
+#under this model setup 
+#one key part is to use the center sequence to do the adjustment 
+
+#use the sign of x.cen - x.cen.bar 
+x.cen <- apply(x.obs, 1, center)
+x.cen.bar <- mean(x.cen)
+ind.seq <- as.numeric(x.cen-x.cen.bar<0)
+x.conj <- apply.intvl0(x.obs, intvlconj)
+#adjust.intvl <- function(a) (intvlconj(a)-a)*ind.seq + a
+x.adj <- ind.seq*x.conj + (1-ind.seq)*x.obs
+#or we can directly use the center sequence to do the estimation of the mean
+
+#but we want to use the adjusted sequence to help us get the noise sequence 
+#to estimate other parameters (e.g. the variance part)
+
+```
+
+```{r}
+sub.ind <- seq_len(1e2)
+plot.intvl(x.obs[sub.ind,])
+plot.intvl(x.adj[sub.ind,])
+plot.intvl(x[sub.ind,])
+```
+
+```{r}
+(mean.est.obs <- apply(x.obs,2,mean))
+
+(mean.est.adj <- apply(x.adj,2,mean))
+```
+
+```{r}
+plot.intvl(apply(x.obs, 2, cummean))
+plot.intvl(apply(x.adj, 2, cummean))
+```
+
+```{r}
+#estimation of the variance part 
+
+#use the res.seq 
+
+#construct the confidence interval
+
+```
+
+### G-normal
+
+(consider the ambiguity in the flipping behaviour)
+
+(seq-indep and G-normal)
+
+
+## [mu] + [sig]ep
+
+(mean certainty and variance uncertainty)
+
+(mean uncertainty and variance uncertainty)
+```{r}
+#set.seed(1234)
+n <- 1e3
+w <- rsemiGnorm.intvl(n, sd.intvl = c(1,4))
+w.obs <- as.propintvl(w)
+mu0 <- rmaximal.intvl(n, c(0,1))
+x <- mu0 + w
+x.obs <- as.propintvl(x)
+```
+
+```{r}
+sub.ind <- seq_len(1e2)
+plot.intvl(w[sub.ind,])
+plot.intvl(w.obs[sub.ind,])
+plot.intvl(x[sub.ind,])
+plot.intvl(x.obs[sub.ind,])
+#how to do the adjustment to do the estimation
+```
+
+### semi-G-normal
+
+```{r}
+#under this model setup 
+#one key part is to use the center sequence to do the adjustment 
+
+#use the sign of x.cen - x.cen.bar 
+x.cen <- apply(x.obs, 1, center)
+x.cen.bar <- mean(x.cen)
+ind.seq <- as.numeric(x.cen-x.cen.bar<0)
+x.conj <- apply.intvl0(x.obs, intvlconj)
+#adjust.intvl <- function(a) (intvlconj(a)-a)*ind.seq + a
+x.adj <- ind.seq*x.conj + (1-ind.seq)*x.obs
+#or we can directly use the center sequence to do the estimation of the mean
+
+#but we want to use the adjusted sequence to help us get the noise sequence 
+#to estimate other parameters (e.g. the variance part)
+
+```
+
+```{r}
+plot.intvl(x.obs[sub.ind,])
+plot.intvl(x.adj[sub.ind,])
+plot.intvl(x[sub.ind,])
+```
+
+```{r}
+(mean.est.obs <- apply(x.obs,2,mean))
+
+(mean.est.adj <- apply(x.adj,2,mean))
+```
+
+```{r}
+plot.intvl(apply(x.obs, 2, cummean))
+plot.intvl(apply(x.adj, 2, cummean))
+```
+
+```{r}
+#get the res.seq 
+res.adj <- apply.intvl0(x.adj, function(a) a - mean.est.adj)
+plot.intvl(res.adj[sub.ind,])
+plot.intvl(w[sub.ind,])
+
+#res.seq is the noise part
+#it should have mean zero 
+plot.intvl(apply(res.adj, 2, cummean))
+
+#estimation of the variance part
+res.sq <- apply.intvl0(res.adj, function(x) x^2)
+#res.sq <- apply.intvl(res.adj, function(x) x^2) #give the same result
+plot.intvl(res.sq[sub.ind,])
+
+w.sq <- apply.intvl0(w, function(x) x^2)
+plot.intvl(w.sq[sub.ind,])
+
+var.est.adj <- apply(res.sq, 2, mean)
+var.est.adj 
+
+var.true <- c(1,4)^2
+var.true
+
+plot.intvl(apply(res.sq,2,cummean))
+
+#construct the confidence interval under semi-G-normal setup 
+#simulation (or par bootstrap)
+
+#in theory 
+
+```
+
+### G-normal
+
+(consider the ambiguity in the flipping behaviour)
+
+(seq-indep and G-normal)
+
+
+
+# Simulation Examples
+
+(Notes: give a relatively complete simulation study first, then filling more details in the associated previous sections)
+
+(First do the example from scratch, then pack up some of the operations into functions.)
+
+## M + N(0,1)
+
+(Main: mean uncertainty)
+
+Let us start from a very simple case: estimate the mean interval of a sample from a (single-valued) standard normal shifted by a constant interval. 
+
+```{r}
+mu.intvl0 <- c(1,2)
+n <- 1e3
+m <- rmaximal.intvl(n, mu.intvl0)
+y <- rsemiGnorm.intvl(n, c(1,1))
+x <- m + y
+```
+
+```{r}
+sub.ind <- seq_len(1e2)
+plot.intvl(x[sub.ind,], linesplot = FALSE)
+plot.intvl(x[sub.ind,], linesplot = TRUE)
+```
+
+```{r}
+#check the range of the dataset
+range.seq <- apply(x,1,range)
+plot(range.seq, type = "l")
+#to see whether it has variance uncertainty 
+
+```
+
+```{r}
+mean.est <- apply(x, 2, mean)
+res <- apply.intvl0(x, function(a) a-mean.est)
+plot.intvl(res[sub.ind,], linesplot = TRUE) #almost no variance uncertainty 
+```
+
+```{r}
+cummean.seq <- apply(x, 2, cummean)
+plot.intvl(cummean.seq, linesplot = TRUE)
+```
+
+```{r}
+#but one problem here is still the uncertainty in the flipping behaviour 
+```
+
+
+## M + N(0,[1,1.4])
+
+(Main: mean certainty versus uncertainty)
+
+
+```{r}
+mu.intvl0 <- c(1,2)
+#mu.intvl0 <- c(2,2)
+set.seed(123)
+n <- 1e3
+m <- rmaximal.intvl(n, mu.intvl0)
+#if we allow improper interval for noise part
+y <- rsemiGnorm.intvl(n, c(1,3))
+#if the noise part can only be proper one the performance will be much more different
+y.obs <- as.propintvl(y)
+x <- m + y
+x1 <- as.propintvl(x)
+x2 <- m + y.obs
+```
+
+```{r}
+sub.ind <- seq_len(1e2)
+plot.intvl(x1[sub.ind,], linesplot = FALSE)
+plot.intvl(x1[sub.ind,], linesplot = TRUE)
+plot.intvl(x2[sub.ind,])
+```
+
+```{r}
+#check the range of the dataset
+range.seq <- apply(x,1,range)
+plot(range.seq, type = "l")
+range.seq1 <- apply(x1,1,range)
+plot(range.seq1, type = "l")
+range.seq2 <- apply(x2,1,range)
+plot(range.seq2, type = "l")
+#assume y.seq follows a single interval-type distribution
+#to see whether it has variance uncertainty in interval sense (whether we have sdr > sdl)
+#it does has variance uncertainty because y.seq is not single-valued
+#from the range we can tell this information
+```
+
+```{r}
+mean.est <- apply(x, 2, mean)
+res <- apply.intvl0(x, function(a) a-mean.est)
+plot.intvl(res[sub.ind,], linesplot = TRUE) #almost no variance uncertainty 
+
+mean.est <- apply(x1, 2, mean)
+res <- apply.intvl0(x1, function(a) a-mean.est)
+plot.intvl(res[sub.ind,], linesplot = TRUE) #almost no variance uncertainty 
+
+mean.est <- apply(x2, 2, mean)
+res <- apply.intvl0(x2, function(a) a-mean.est)
+plot.intvl(res[sub.ind,], linesplot = TRUE) #almost no variance uncertainty 
+```
+
+```{r}
+cummean.seq <- apply(x, 2, cummean)
+plot.intvl(cummean.seq, linesplot = TRUE)
+
+cummean.seq1 <- apply(x1, 2, cummean)
+plot.intvl(cummean.seq1, linesplot = TRUE)
+
+cummean.seq2 <- apply(x2, 2, cummean)
+plot.intvl(cummean.seq2, linesplot = TRUE)
+```
+
+```{r}
+#but one problem here is still the uncertainty in the flipping behaviour 
+```
+
+
+
+## Noise W
+
+How does noise term may look like? 
+
+```{r}
+n <- 1e3
+w.seq <- rsemiGnorm.intvl(n, sd.intvl = c(1,2))
+w.seq.obs <- apply.intvl(w.seq, function(x) x)
+```
+
+```{r}
+sub.ind <- seq_len(30)
+plot.intvl(w.seq[sub.ind,])
+plot.intvl(w.seq.obs[sub.ind,])
+```
+
+When we look at this noise sequence (which is the usual sequence we observe in practice), how should we interpret this?
+
+```{r}
+w.seq.obs.cen <- apply(w.seq.obs, 1, center)
+w.seq.obs.range <- apply(w.seq.obs, 1, range)
+
+hist(w.seq.obs[,"left"])
+hist(w.seq.obs[,"right"])
+hist(w.seq.obs.cen)
+hist(w.seq.obs.range)
+
+qqnorm(w.seq.obs[,"left"])
+qqline(w.seq.obs[,"left"], col=2)
+
+qqnorm(w.seq.obs[,"right"])
+qqline(w.seq.obs[,"right"], col=2)
+
+qqnorm(w.seq.obs.cen)
+qqline(w.seq.obs.cen, col = 2)
+#both the two ends are not normal distribution
+#but the center has a normal distribution
+```
+
+```{r}
+#How to interpret the interval
+#It could be a proper one 
+
+```
+
+## m + W
+
+How to estimate the mean under this setup? 
+
+What kind of objects may be Maximally distributed? 
+
+How to understand the improper interval? 
+
+Suppose we are interested in a quantity $x$ but it is observed as an interval due to imprecise measurement/different ways of measurements, we only know it could be any value in the interval
+$$
+[x]=[1.2,1.8].
+$$
+
+If we want to have $x$ in a equation and we have another quantity $y$ to be defined as 
+$$
+y = 3-x,
+$$
+so it satisfies 
+$$
+x+y=3.
+$$
+Under this interval operation and also this equation, we also want to have
+$$
+[x]+[y]=3,
+$$
+then we need $y$ to be recorded as
+$$
+[y] = [1.8,1.2],
+$$
+which is an improper interval. 
+
+
+```{r}
+set.seed(1234)
+n <- 1e3
+sd.intvl.true <- c(1,2)
+sig.low <- sd.intvl.true[1]
+sig.high <- sd.intvl.true[2]
+y.uni <- rnorm(n)
+y <- intvl(y.uni, y.uni) #intval
+z.prop <- intvl(rep(sig.low,n), rep(sig.high,n))
+
+#noise version 1: semi-G-normal noise
+z1 <- z.prop
+w1 <- z1*y 
+
+#noise version 2: conjugate of version 1
+z2 <- apply.intvl0(z.prop, intvlconj)
+w2 <- z2*y
+
+#Independent mixture
+#noise version 3: An independent Bernoulli-mixture of version 1 and 2 
+s.seq <- rbinom(n, 1, 1/3)
+s.mat <- intvl(s.seq, s.seq)
+z3 <- z1*s.mat + z2*(1-s.mat)
+#z3 <- z1*s.seq + z2*(1-s.seq)
+w3 <- z3*y
+
+#plot.intvl(w1, linesplot = TRUE)
+#plot.intvl(w2, linesplot = TRUE)
+#plot.intvl(w3, linesplot = TRUE)
+```
+
+```{r}
+#Dependent mixture
+#noise version 4: A HMM-mixture of version 1 and 2
+##specify initial state
+#interval-data version of one HMM mixture
+s0 <- 0 #which is an interval
+#s.mat <- matrix(NA, ncol = 2, nrow=n)
+s.seq <- numeric(n)
+s.seq[1] <- s0
+trans.mat <- matrix(c(0.9, 0.1, 
+                      0.2, 0.8), 
+                    nrow = 2, byrow = TRUE)
+for (i in seq_len(n-1)){
+  s.seq[i+1] <- as.numeric(s.seq[i]==0)*rbinom(1,1,trans.mat[1,2]) + as.numeric(s.seq[i]==1)*rbinom(1,1,trans.mat[2,2])
+}
+s.mat <- intvl(s.seq, s.seq)
+z4 <- z1*s.mat + z2*(1-s.mat)
+#z3 <- z1*s.seq + z2*(1-s.seq)
+w4 <- z4*y
+
+#noise version 5: leverage-effect mixture of version 1 and 2
+##specify initial state
+s0 <- 0 #which is an interval
+s.seq <- numeric(n)
+s.seq[1] <- s0
+#leverage effect
+#consider the sign of y.seq[i]
+
+#check the switching rule under varphi(x)=x^3
+for (i in seq_len(n-1)){
+  #we need to consider the partial sum of w5
+  
+}
+
+s.seq[-1] <- as.numeric(y.uni[-n]>0)
+s.mat <- intvl(s.seq, s.seq)
+z5 <- z1*s.mat + z2*(1-s.mat)
+#z3 <- z1*s.seq + z2*(1-s.seq)
+w5 <- z5*y
+```
+
+```{r}
+w.list <- list(w1 = w1, 
+               w2 = w2,
+               w3 = w3, 
+               w4 = w4,
+               w5 = w5)
+
+#One important note here
+#In interval form, they will all be the same in practice (if they all become its proper version)
+#their center and range will become the same
+#these feature will be all hidden in those proper intervals. 
+#this is why we call this phenomenon as the ambiguity in volatility process in the interval-data analysis
+#our goal of this experiment is to explicitly show this ambiguity, 
+#since we can only observe the proper interval 
+#it is nearly impossible to tell which one it is if we are not provided with more reliable information
+#so before we  one way to deal with it, is to set up an envelope to have a control on the best and worst case scenario 
+#(e.g. to do the estimation)
+```
+
+```{r}
+w.list.obs <- w.list
+sub.ind <- seq_len(1e2)
+for (i in seq_along(w.list)){
+  w.list.obs[[i]] <- as.propintvl(w.list[[i]])
+  plot.intvl(w.list[[i]][sub.ind,], linesplot = TRUE, 
+             main = paste0("w.intvl", i))
+  plot.intvl(w.list.obs[[i]][sub.ind, ], linesplot = TRUE, 
+            main = paste0("w.intvl.obs", i))
+}
+
+```
+
+```{r}
+#compare whether their observed versions are the same 
+all(w.list.obs[[1]]==w.list.obs[[2]])
+all(w.list.obs[[2]]==w.list.obs[[3]])
+all(w.list.obs[[3]]==w.list.obs[[4]])
+all(w.list.obs[[4]]==w.list.obs[[5]])
+```
+
+```{r}
+#suppose we assume each kind of underlying model
+w.cummean.list <- w.list
+for (k in seq_along(w.list)){
+  w.cummean.list[[k]] <- apply(w.list[[k]], 2, cummean)
+  plot.intvl(w.cummean.list[[k]], linesplot = TRUE)
+}
+#they all have mean certainty
+#mean estimation 
+```
+
+```{r}
+w.sq.list <- w.sq.cummean.list <- w.list
+for (k in seq_along(w.list)){
+  w.sq.list[[k]] <- apply.intvl0(w.list[[k]], function(x) x^2)
+  #w.sq.list[[k]] <- apply.intvl(w.list[[k]], function(x) x^2)
+  w.sq.cummean.list[[k]] <- apply(w.sq.list[[k]], 2, cummean)
+  plot.intvl(w.sq.cummean.list[[k]], linesplot = TRUE)
+}
+#they have the same variance uncertainty in the sense that f(x)=x^2
+```
+
+```{r}
+w.cb.list <- w.cb.cummean.list <- w.list
+for (k in seq_along(w.list)){
+  w.cb.list[[k]] <- apply.intvl0(w.list[[k]], function(x) x^3)
+  w.cb.cummean.list[[k]] <- apply(w.cb.list[[k]], 2, cummean)
+  plot.intvl(w.cb.cummean.list[[k]], linesplot = TRUE)
+}
+#check the skewness part 
+```
+
+```{r}
+#suppose we assume one underlying model 
+
+#illustrate how to do the mean estimation in this case
+#apply()
+#apply the mean function 
+
+#consider the sampling distribution 
+
+#the lack of information on the true underlying process brings us the ambiguity
+#how to construct the confidence interval under this ambiguity
+#include all possible cases
+
+```
+
+We are told that this is a sequence with mean certainty and variance uncertainty. In other words, it can be expressed as 
+$$
+[X]_t = \mu + [W]_t
+$$
+where $[W]_t$ is the interval type noise. 
+
+Since we assume mean-certainty and variance uncertainty, the true noise sequence must involve improper interval, otherwise (if all of them are proper intervals,) the sequence still have mean uncertainty. 
+
+(Then we need to remove the mean part to look at the remaining noise sequence.)
+
+One goal here is to provide a reasonable C.I for the estimator of mean under the context of interval data. 
+
+(also check the existing theory of random sets.)
+
+```{r}
+#semi-G-normal 
+plot.intvl(test.seq, linesplot = TRUE)
+#conjugate of semi-G-normal
+test.seq.conj <- apply.intvl0(test.seq, intvlconj)
+plot.intvl(test.seq.conj, linesplot = TRUE)
+#switch between them 
+#a mixture model 
+s.seq <- rbinom(n, 1, 1/2)
+test.seq.mix <- s.seq*test.seq + (1-s.seq)*test.seq.conj
+plot.intvl(test.seq.mix, linesplot = TRUE)
+#they have the same mean
+#they have the same variance
+#check the skewness for each of them
+```
+
+```{r}
+mu <- 1
+x.seq1 <- mu + test.seq
+x.seq2 <- mu + test.seq.conj
+x.seq3 <- mu + test.seq.mix
+
+x.seq1.obs <- as.propintvl(x.seq1)
+x.seq2.obs <- as.propintvl(x.seq2)
+```
+
+
+
+## M + VY 
+
+$$
+X = M + W
+$$
+where 
+$$
+M\sim M[\underline{\mu}, \overline{\mu}]
+$$
+
+Use this data example to see the main theoretical idea and intuition: 
+
+- sequential independence; 
+- how to combine sequence together; 
+- the similarity and key difference compared with the classical single-valued situations.
+
+- One distinction between interval data and classical cases is that when we want to consider interval data, it has an intrinsic ambiguity: whether the underlying true interval of the observed interval should be a proper one or improper one. 
+
+- One note here: we may also have the ambiguity in the proper or improper version of intervals in the mean interval part. 
+
+```{r}
+mu.intvl.true <- c(0, 1)
+sd.intvl.true <- c(1, 3)
+
+n <- 1e3
+set.seed(250881732)
+m.seq <- rmaximal.intvl(n, mean.intvl = mu.intvl.true) #uncertain mean part
+w.seq <- vy.seq <- rsemiGnorm.intvl(n, sd.intvl = sd.intvl.true) 
+#semi-G-normal with mean zero and uncertain variance 
+#uncertain variance part
+x.seq <- m.seq + w.seq
+#in real dataset, we usually only observe low and high
+x.seq.obs<- apply.intvl(x.seq, function(x) x)
+w.seq.obs <- w.seq.real - m.seq
+```
+
+```{r}
+sub.ind <- seq_len(50)
+plot.intvl(m.seq[sub.ind,])
+plot.intvl(w.seq[sub.ind,])
+plot.intvl(w.seq.obs[sub.ind,])
+plot.intvl(x.seq[sub.ind,])
+plot.intvl(x.seq.obs[sub.ind,])
+#we may still o
+```
+
+```{r}
+#check the distribution of the two end points
+w.seq.obs.cen <- apply(w.seq.obs, 1, mean)
+hist(w.seq.obs[,"left"])
+hist(w.seq.obs[,"right"])
+hist(w.seq.obs.cen)
+
+qqnorm(w.seq.obs[,"left"])
+qqline(w.seq.obs[,"left"], col=2)
+
+qqnorm(w.seq.obs[,"right"])
+qqline(w.seq.obs[,"right"], col=2)
+
+qqnorm(w.seq.obs.cen)
+qqline(w.seq.obs.cen, col = 2)
+#when mean uncertainty is stronger than the var uncertainty
+#it is more like normal
+#when the var uncertatiny is stronger than the mean uncertainty
+#it is no longer like normal if we look at the two end points
+#but the center is still a normal distribution
+#this is the reason we still call it a normal distribution (in the semi-G-version). 
+```
+
+Let us take a close look at the noise part here which is $VY$. 
+
+```{r}
+noise.seq <- w.seq
+noise.seq.obs <- w.seq.obs
+sub.ind <- seq_len(20)
+plot.intvl(noise.seq[sub.ind,]) #true noise sequence
+plot.intvl(noise.seq.obs[sub.ind,]) #observed noise sequence
+```
+
+The key problem here is that in practice we do not see w.seq but only see w.seq.obs. 
+
+- estimation on the mean interval: mean.intvl.est
+- how to construct C.I for the mean.intvl.est: in this case, we need to think about the possible sampling distribution of the estimator
+- we may assume a semi-sequentially iid semi-G-normal distribution; - we may also assume a different distribution for this. 
+- then how to deal with it? (one possibility is to incorporate the G-CLT here to cover this kind of uncertainty.)
+
+```{r}
+#estimation of the mean 
+mean.est <- apply(x.seq, 2, mean)
+mean.est
+
+mean.est2 <- apply(x.seq.obs, 2, mean)
+mean.est2
+#it will be overdispersed 
+#we may need to use the center sequence to adjust the x.seq.obs
+
+res.seq <- apply.intvl0(x.seq.obs, function(x) x-mean.est)
+
+#res.seq <- apply.intvl(x.seq.obs, function(x) x-mean.est)
+```
+
+It is straightforward to estimate the variance, because in either cases, the square function will give us the lower and upper end, but the key problem is how to construct the C.I. for the mean.intvl.est. 
+
+```{r}
+plot.intvl(res.seq[sub.ind,])
+any(apply(res.seq, 1, function(x) x[1]<0 & 0<x[2]))
+```
+
+```{r}
+res.sq.seq <- apply.intvl(res.seq, function(x) x^2, 
+                          ind.optim = FALSE) 
+#with a<b 
+plot.intvl(res.sq.seq[sub.ind, ])
+```
+
+```{r}
+var.est.1 <- apply(res.sq.seq, 2, function(x) mean(x))
+
+var.est.2 <- apply(res.sq.seq, 2, function(x) sum(x)/(n-1))
+#or use 1/(n-1) 
+
+var.est.1
+var.est.2
+#we do not need to re-format the sequence into the semi-G-normal design
+#but this underlying design need to be clear 
+#otherwise the res.seq still seems to have mean uncertainy 
+#but in theoy, it actually has mean zero.
+```
+
+In order to estimate the third moment (which is expected to be zero with no uncertainty), we need to do the sign transformation for the residual sequence. 
+
+```{r}
+#sequential independence
+#M --> V --> Y 
+#V --> Y
+#M --> VY
+
+
+```
+
+```{r}
+#[a, b] stay as [a, b]
+#negative part 
+#[-b, -a] need to be [-a, -b]
+#in theory the interval will not cover zero
+
+#in practice we need a way to handle it if it is close to zero point (but cover zero due to numerical issues)
+```
+
+(also check sampling distribution)
+
+```{r}
+n <- 1e3
+est.mat <- replicate(5e2, {
+m.seq <- rmaximal.intvl(n, mean.intvl = mu.intvl.true) #uncertain mean part
+vy.seq <- rsemiGnorm.intvl(n, sd.intvl = sd.intvl.true) 
+#semi-G-normal with mean zero and uncertain variance 
+#uncertain variance part
+w.seq <- m.seq + vy.seq
+w.seq.real <- intvlconj(w.seq)
+mean.est <- apply(w.seq, 2, mean)
+
+res.seq <- apply.intvl0(w.seq.real, function(x) x-mean.est)
+
+res.sq.seq <- apply.intvl(res.seq, function(x) x^2) 
+
+var.est.2 <- apply(res.sq.seq, 2, function(x) sum(x)/(n-1))
+
+c(mean.est, var.est.2)
+})
+```
+
+```{r}
+mean.estmat.intvl <- intvl(left = est.mat[1,], 
+                           right = est.mat[2,])
+var.estmat.intvl <- intvl(left = est.mat[3,], 
+                          right = est.mat[4,])
+```
+
+```{r}
+hist.intvl(mean.estmat.intvl, true.par = mu.intvl.true, 
+           show.bias = FALSE)
+
+hist.intvl(var.estmat.intvl, true.par = sd.intvl.true^2, 
+           show.bias = FALSE)
+```
+
+```{r}
+hist.intvl(mean.estmat.intvl, true.par = mu.intvl.true)
+
+hist.intvl(var.estmat.intvl, true.par = sd.intvl.true^2)
+```
+
+
+Confidence interval for estimation. 
+
+## Ellsberg Urn Example
+
+## Regression Example
+$$
+[Y] = \beta [X] + [e]
+$$
+
+```{r}
+#play with an example 
+#it is also a preparation for AR(1) practice
+n <- 1e3
+set.seed(1234)
+beta.true <- 0.8
+sd.intvl.true <- c(1,2)
+x.seq <- rsemiGnorm.intvl(n, sd.intvl = sd.intvl.true)
+#we may not need to assume a distributon for x.seq 
+x.seq.real <- apply.intvl(x.seq, function(x) x)
+#the observed x.seq 
+e.seq <- rsemiGnorm.intvl(n, sd.intvl = sd.intvl.true) 
+#y.seq <- beta.true*x.seq + e.seq 
+y.seq <- beta.true*x.seq.real + e.seq
+y.seq.real <- apply.intvl(y.seq, function(x) x)
+#I may also try the rsemiGbern
+```
+
+```{r}
+#ref: dennis lin and his student 
+#visualization of the correlated interval data
+```
+
+```{r}
+sub.ind <- seq_len(1e2)
+plot.intvl(x.seq.real[sub.ind, ])
+plot.intvl(y.seq[sub.ind, ])
+plot.intvl(y.seq.real[sub.ind, ])
+```
+
+
+```{r}
+#true res
+res.true.seq <- y.seq.real-beta.true*x.seq.real 
+#apply.intvl(e.seq.true, function(x) x)
+plot.intvl(res.true.seq[sub.ind, ])
+```
+
+```{r}
+#plot the bivariate inteval with center
+#to show the correlation 
+
+```
+
+```{r}
+#L2 regression 
+#write down the objective function
+#try the first version 
+
+
+
+```
+
+```{r}
+
+```
+
+
+## AR(1) Example
+
+$$
+[Y]_t=[\mu]+[X]_t
+$$
+$$
+[X]_t = \phi [X]_{t-1} + [e]_t
+$$
+
+```{r}
+#generation of AR(1) sequence
+n <- 1e3
+phi.true <- 0.8
+#set.seed(1234)
+x.seq <- NA.intvl(n)
+e.seq <- rsemiGnorm.intvl(n, sd.intvl = sd.intvl.true)
+mu.seq <- rmaximal.intvl(n, mean.intvl = mu.intvl.true)
+x.seq[1,] <- e.seq[1,]
+for (t in seq_len(n-1)){
+  x.seq[t+1,] <- phi.true*x.seq[t,] + e.seq[t,]
+}
+y.seq <- mu.seq+x.seq
+x.seq.real <- apply.intvl(x.seq, function(x) x)
+y.seq.real <- apply.intvl(y.seq, function(x) x)
+``` 
+
+
+```{r}
+plot.intvl(x.seq[seq_len(1e2),])
+plot.intvl(x.seq.real[seq_len(1e2),])
+
+plot.intvl(y.seq[seq_len(1e2),])
+plot.intvl(y.seq.real[seq_len(1e2),])
+```
+
+```{r}
+#adjustment based on the center
+#estimate mean
+mean.est.ar <- apply(y.seq.real, 2, mean)
+
+#we need to filter the residual (negative sign)
+res.seq.ar <- apply(y.seq.real, 2, function(x) x-mean.est.ar)
+
+plot.intvl(res.seq.ar[seq_len(1e2),])
+```
+
+```{r}
+#function
+#if negative switch 
+
+conj.intvl <- function(intvl){
+  c(intvl[2], intvl[1])
+}
+
+neg.filter <- function(x.intvl, tol = 0){
+  l <- x.intvl[1]
+  r <- x.intvl[2]
+  #use the sign of the center
+  center <- mean(x.intvl)
+  if(center < tol){
+    re <- conj.intvl(x.intvl)
+    #flip it to the negative side 
+    if (re[1]>0) re[1] <- -re[1]
+  } else {
+    re <- x.intvl
+    if (re[1]<0) re[1] <- -re[1]
+  }
+  return(re)
+}
+```
+
+```{r}
+res.filter.seq <- apply.intvl0(res.seq.ar, neg.filter)
+plot.intvl(res.filter.seq[seq_len(1e2), ])
+```
+
+```{r}
+#est the correlation
+res.sq.seq.ar <- apply.intvl(res.filter.seq, function(x) x^2)
+#res.sq.seq.ar <- apply.intvl(res.seq.ar, function(x) x^2)
+var.n.est.ar <- apply(res.sq.seq.ar, 2, function(x) sum(x))
+var.n.est.ar
+#
+#product rule is important
+#product between two interval with clear signs 
+#here it is designed for residuals
+sign.intvl <- function(x){
+  l <- x[1]
+  r <- x[2]
+  re <- (l<=r)*2 - 1
+  return(as.numeric(re))
+}
+#only take 1 or -1
+#sign.intvl(c(3,2))
+
+# prod.intvl <- function(x,y){
+#   s.x <- sign.intvl(x)
+#   s.y <- sign.intvl(y)
+#   if (s.x*s.y >= 0){
+#     #same sign
+#     re <- x*y #hyperbolic product
+#   } else {
+#     #different sign
+#     #re <- - conj.intvl(x)*y
+#   }
+#   return(re)
+# }
+
+#prod.intvl(c(1,2), c(1,2))
+#prod.intvl(c(1,2), c(1,2))
+
+res.cov.seq <- NA.intvl(n-1)
+for (t in seq_len(n-1)){
+  res.cov.seq[t,] <- res.filter.seq[t,]*res.filter.seq[t+1,]
+}
+
+plot.intvl(res.cov.seq[seq_len(1e2),])
+#after do the filtering, we can use the regular product
+cov.n.est.ar <- apply(res.cov.seq, 2, function(x) sum(x))
+#cov.n.est.ar
+#var.n.est.ar
+```
+
+```{r}
+#we try to make this estimation to be pointwise
+
+# we cannot use the usual Yule walker method, but we can use the regression method 
+```
+
+```{r}
+frac.intvl <- function(x,y){
+  #two positive one 
+  x/conj.intvl(y)
+}
+```
+
+
+#Real Data Examples
+
+Take a look at the 
+
+## Temperature Data
+
+Data Source: 
+https://climatedataguide.ucar.edu/climate-data/global-surface-temperatures-best-berkeley-earth-surface-temperatures
+
+
+```{r}
+#import the dataset
+
+```
+
+```{r}
+#draw the temperature data
+
+```
+
+## Stock Price Data
+
+```{r}
+library(quantmod)
+if (!require("tidyquant")) install.packages("tidyquant")
+```
+
+
+```{r}
+#Real Data preparation
+startdate <- "1980-01-01" #avoid the holidays (a minor issue here)
+#enddate <- "2019-01-01"
+enddate <- "2021-04-10" #avoid the holidays
+
+#try higher frequency to have more points
+#North American Market: S&P500
+#getSymbols("^GSPC", from=startdate, to=enddate, by=60*60)
+getSymbols("^GSPC", from=startdate, to=enddate, scr = "yahoo")
+#if yahoo not working
+```
+
+```{r}
+load("GSPC.Rdata")
+```
+
+```{r}
+head(GSPC)
+```
+
+```{r}
+time.ind <- "2000/2020"
+S.intvl.xts <- GSPC[time.ind, c("GSPC.Low", "GSPC.High")]
+
+S.intvl <- intvl(left = as.numeric(S.intvl.xts$GSPC.Low), 
+                 right = as.numeric(S.intvl.xts$GSPC.High)) 
+
+#S.intvl <- intvl(left = )
+
+#without as.numeric, S.intvl is auotmatic a xts object
+#xts object has the name issue, there is conflict in the change of name if apply it to the data frame
+#plot.intvl(S.intvl)
+
+plot(S.intvl.xts)
+
+```
+
+
+```{r}
+#compute the return sequence 
+#directly work on the xts object
+n.t <- nrow(S.intvl.xts)
+t.ind <- seq_len(n.t-1) + 1
+S.low <- as.numeric(S.intvl.xts$GSPC.Low)
+S.high <- as.numeric(S.intvl.xts$GSPC.High)
+
+#xts object at different time point cannot directly do the difference
+
+#relative return 
+return.seq.high <- (S.high[-1] - S.low[-n.t])/S.low[-n.t]
+return.seq.low <- (S.low[-1] - S.high[-n.t])/S.high[-n.t]
+
+#return.seq.high <- (S.high[-1] - S.low[-n.t]) #absolute return
+#return.seq.low <- (S.low[-1] - S.high[-n.t]) #absolute return
+
+# return.seq.low <- return.seq.high <- S.high[-1]
+# 
+# for (t in t.ind){
+#   return.seq.low[t-1] <- S.high[t]-S.low[t-1]
+#   return.seq.low[t-1] <- S.low[t]-S.high[t-1]
+# }
+
+```
+
+```{r}
+#S.low[2]+S.high[2]
+#S.low[1]+S.high[1]
+```
+
+```{r}
+return.intvl.xts.org <- xts(cbind(return.seq.low, return.seq.high), order.by = index(S.intvl.xts[-1,]))
+return.intvl.xts <- return.intvl.xts.org*100
+colnames(return.intvl.xts) <- c("return.low", "return.high")
+```
+
+```{r}
+plot(return.intvl.xts)
+#this is a typical interval type data.
+#we definitely need to adapt a G-version time series/stochastic model to describe this pattern. 
+#e.g. G-GARCH model with noise part itself has variance uncertainty.
+```
+
+```{r}
+#return.center.xts <- apply(return.intvl.xts, 1, mean)
+return.center.xts <- (return.intvl.xts[,1]+return.intvl.xts[,2])/2
+#why its center is always greater than zero. 
+return.radius.xts <- (return.intvl.xts[,2]-return.intvl.xts[,1])/2
+plot(return.center.xts)
+plot(return.radius.xts)
+#it definitely have an interval-type noise part
+#we need to consider the model uncertainty in this case
+#G-ARCH model in this case
+#current literature is mostly modeling the center part
+#how to understand the range part
+#it may be another sign to show the volatility status of the market
+```
+
+```{r}
+hist(return.center.xts, breaks = "scott")
+hist(return.radius.xts, breaks = "scott") #similar to a truncated distribution
+```
+
+```{r}
+hist(return.intvl.xts[,1], breaks = "scott") #highly skewed
+hist(return.intvl.xts[,2], breaks = "scott") #highly skewed
+#hist(c(return.intvl.xts[,1],return.intvl.xts[,2]), breaks = "scott") 
+```
+
+Check the existing literature in interval-valued return data. 
+
+
+```{r}
+plot(return.seq.low, return.seq.high, 
+     xlim = c(-0.2,0.1), ylim=c(-0.1,0.2))
+abline(v=0, col=2, lty=2)
+abline(h=0, col=2, lty=2)
+```
+
+```{r}
+#consider the square of the dataset to see the interval-type realized volatility. 
+
+```
+
+```{r}
+mean.return.est <- apply(return.intvl.xts, 2, mean)
+#slight mean uncertainty (*0.01)
+#noise.return.intvl.xts <- t(apply(return.intvl.xts, 1, function(x) x-mean.return.est))
+
+noise.return.intvl.xts <- apply.daily(return.intvl.xts, function(x) x-mean.return.est)
+plot(noise.return.intvl.xts)
+```
+
+```{r}
+noise.return.intvl <- intvl(left = as.numeric(noise.return.intvl.xts[,1]),
+                            right = as.numeric(noise.return.intvl.xts[,2]) )
+plot.intvl(noise.return.intvl[1e2+seq_len(2e2),])
+```
+
+```{r}
+plot(noise.return.intvl.xts["2010-01/2015-01"])
+
+plot(noise.return.intvl.xts["2018-01/2020-05"])
+```
+
+```{r}
+#filter the sign
+
+#check moment uncertainty
+
+#check the mean 
+#from the center sequence to see whether it has mean certainty 0 
+#or we may use TKU
+
+```
+
+# How to understand noise part
+
+```{r}
+plot(return.intvl.xts)
+```
+
+## traditional way 
+
+Suppose we use a traditional way to model this data. 
+
+```{r}
+#plot.intvl(return.intvl.xts)
+mean.intvl.est <- apply(return.intvl.xts, 2, mean)
+mean.intvl.est
+#remove the mean part
+# return.intvl.xts.c <- return.intvl.xts
+# return.intvl.xts.c[,1] <- return.intvl.xts[,1] - mean.intvl.est[1]
+# return.intvl.xts.c[,2] <- return.intvl.xts[,2] - mean.intvl.est[2]
+return.intvl.xts.c <- apply(return.intvl.xts, 1, 
+                                  function(x) x-mean.intvl.est)
+#dim(return.intvl.xts.c)
+return.intvl.xts.c <- t(return.intvl.xts.c)
+head(return.intvl.xts)
+head(return.intvl.xts.c)
+plot.intvl(return.intvl.xts.c)
+```
+
+```{r}
+hist(return.intvl.xts[,1], breaks = "scott")
+hist(return.intvl.xts[,2], breaks = "scott")
+```
+
+```{r}
+hist(return.intvl.xts.c[,1], breaks = "scott")
+hist(return.intvl.xts.c[,2], breaks = "scott")
+```
+## introduce interval direction 
+
+```{r}
+return.intvl <- as.matrix(return.intvl.xts)
+colnames(return.intvl) <- c("left", "right")
+#only remove the global mean (not an interval)
+#we will get nearly zero interval mean after we introduce the interval direction
+(mean.gl <- mean(return.intvl)) 
+#or 
+#mean(mean.intvl.est)
+return.intvl <- return.intvl - mean.gl
+plot.intvl(return.intvl)
+```
+
+```{r}
+set.seed(123)
+d1 <- function(x){
+  #direction process
+  s <- rbinom(1,1,0.5)
+  s*x + (1-s)*rev(x)
+}
+return.intvl.d <- apply.intvl0(return.intvl, d1)
+```
+
+```{r}
+plot.intvl(return.intvl.d)
+plot.intvl(return.intvl.d[seq_len(100),])
+```
+
+```{r}
+hist(return.intvl.d[,1], breaks = "scott")
+hist(return.intvl.d[,2], breaks = "scott")
+(mean.intvl.d <- apply(return.intvl.d, 2, mean)) 
+#the mean part is close to zero
+```
+
+# Appendix
+
+(This section is used for more temporary notes.)
+

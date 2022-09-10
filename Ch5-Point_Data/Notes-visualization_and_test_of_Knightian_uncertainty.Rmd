@@ -1,0 +1,5769 @@
+---
+title: "G-framework Statistics: Extension"
+author: "Yifan Li, yli2763@uwo.ca"
+date: '2018-09-15'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document is written for discussion on the following questions: 
+
+- How to apply the idea and spirit to real-valued dataset and practice; 
+
+- How should we better understand and deal with uncertainty. 
+
+# Preparations
+
+```{r}
+list.of.packages <- c("ggplot2", "MASS", 
+                      "reshape2", "quantmod")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+lapply(list.of.packages, require, character.only = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+setwd("../Preparation")
+source("Basic-setup.R")
+source("DataExperiment-SemiGNormal-Pre.R")
+source("GframeStatsPoint-full.R")
+source("GframeIntvl.R")
+source("functions-choose-gr-size.R")
+```
+
+#Function lists
+##Pseudo simulation of uncertainty 
+###functions: rmaximal
+```{r}
+#multivariate version of Beta is Dirichlet distribution 
+#approximately equal blocking
+rmaximal <- function(n, min = 1, max = 2, gr.len.mean = 1e2) {
+  a <- min; b <- max
+  result <- numeric(n)
+  count <- 0
+  while (count < n) {
+    #random decide the length
+    #lambda <- sample(1:1e3, 1, prob = rep(1,1e3)/1e3)
+    #len <- rpois(1, lambda)
+    len <- rpois(1, gr.len.mean) #more suitable for max-mean estimation
+    alpha <- runif(1, 0,50)
+    beta <- runif(1, 0,50)
+    c <- rbeta(1, alpha, beta) *(b-a) + a
+    #dirac distributions (constant)
+    newvals <- numeric(len)+c
+    result[count + seq_along(newvals)] <- newvals 
+    #make some space for the newvals
+    count <- count + length(newvals)
+  }
+  result[seq_len(n)]
+}
+
+#use this function to illustrate a highly unstable market where some extreme situations highly likely happens 
+#to better show the extreme cases, the sample points will touch the extreme cases with high chances
+rmaximal.extrem <- function(n, min = 1, max = 2, gr.len.mean = 1e2, 
+                            alpha = 0.3, beta = 0.3) {
+  a <- min; b <- max
+  result <- numeric(n)
+  count <- 0
+  while (count < n) {
+    #random decide the length
+    ##version 1
+    #lambda <- floor(1/runif(1)) #lambda has no upper bound
+    #len <- rpois(1, lambda = lambda)
+    #but the length is usually too small 
+    ##version 2
+    #gr.len.mean
+    L <- gr.len.mean*10
+    lambda <- sample(1:L, 1, prob = rep(1,L)/L)
+    len <- rpois(1, lambda)
+    #alpha <- 0.1
+    #beta <- 10
+    #beta <- 0.1
+    c <- rbeta(1, alpha, beta) *(b-a) + a
+    #dirac distributions (constant)
+    newvals <- numeric(len)+c
+    result[count + seq_along(newvals)] <- newvals 
+    #make some space for the newvals
+    count <- count + length(newvals)
+  }
+  result[seq_len(n)]
+}
+
+rmaximal.extrem.eq <- function(n, min = 1, max = 2, gr.len.mean = 1e2, 
+                            alpha = 0.3, beta = 0.3) {
+  a <- min; b <- max
+  result <- numeric(n)
+  count <- 0
+  while (count < n) {
+    #random decide the length
+    ##version 1
+    #lambda <- floor(1/runif(1)) #lambda has no upper bound
+    #len <- rpois(1, lambda = lambda)
+    #but the length is usually too small 
+    
+    ##version 2
+    #lambda <- sample(1:1e3, 1, prob = rep(1,1e3)/1e3)
+    len <- gr.len.mean
+    #alpha <- 0.1
+    #beta <- 10
+    #beta <- 0.1
+    c <- rbeta(1, alpha, beta) *(b-a) + a
+    #dirac distributions (constant)
+    newvals <- numeric(len)+c
+    result[count + seq_along(newvals)] <- newvals 
+    #make some space for the newvals
+    count <- count + length(newvals)
+  }
+  result[seq_len(n)]
+}
+
+rmaximal1 <- function(n, min = 1, max = 2) {
+  a <- min; b <- max
+  result <- numeric(n)
+  count <- 0
+  while (count < n) {
+    #random decide the length
+    lambda <- sample(1:1e3, 1, prob = rep(1,1e3)/1e3)
+    len <- rpois(1, lambda)
+    alpha <- runif(1, 0,50)
+    beta <- runif(1, 0,50)
+    c <- rbeta(1, alpha, beta) *(b-a) + a
+    #dirac distributions (constant)
+    newvals <- numeric(len)+c
+    result[count + seq_along(newvals)] <- newvals 
+    #make some space for the newvals
+    count <- count + length(newvals)
+  }
+  result[seq_len(n)]
+}
+
+#almost no blocking 
+rmaximal2 <- function(n, min = 1, max = 2) {
+  a <- min; b <- max
+  #linear measures: beta distn
+  result <- numeric(n)
+  count <- 0
+  while (count < n) {
+    #random decide the length
+    lambda <- sample(1:1e3, 1, prob = rep(1,1e3)/1e3)
+    len <- rpois(1, lambda)
+    alpha <- runif(1, 0,50)
+    beta <- runif(1, 0,50)
+    newvals <- rbeta(len, alpha, beta) *(b-a) + a
+    result[count + seq_along(newvals)] <- newvals 
+    #make some space for the newvals
+    count <- count + length(newvals)
+  }
+  result[seq_len(n)]
+}
+
+rmaximal3 <- function(n, min = 1, max = 2) {
+  a <- min; b <- max
+  result <- numeric(n)
+  count <- 0
+  while (count < n) {
+    #random decide the length
+    lambda <- floor(1/runif(1)) 
+    #lambda has no upper bound
+    len <- rpois(1, lambda = lambda)
+    alpha <- runif(1, 0,50)
+    beta <- runif(1, 0,50)
+    c <- rbeta(1, alpha, beta) *(b-a) + a
+    #dirac distributions (constant)
+    newvals <- numeric(len)+c
+    result[count + seq_along(newvals)] <- newvals 
+    #make some space for the newvals
+    count <- count + length(newvals)
+  }
+  result[seq_len(n)]
+}
+
+rf1 <- function(n) rnorm(n, mean = b2, sd = 2)
+rf2 <- function(n) rexp(n, rate = 2/(a2+b2))
+rf3 <- function(n) runif(n, min = a2, max = b2)
+rmaximal.list <- function(n, min = 1, max = 4, 
+                     density.set = list(rf1, rf2, rf3)) {
+  a <- min; b <- max
+  result <- numeric(n)
+  count <- 0
+  L <- length(density.set)
+  #size of density.set
+  while (count < n) {
+    ind <- sample(1:L, 1)
+    #random decide the length
+    lambda <- floor(1/runif(1)) 
+    #lambda has no upper bound
+    len <- rpois(1, lambda = lambda)
+    newvals <- density.set[[ind]](len)
+    newvals <- newvals[a < newvals & newvals < b]
+    result[count + seq_along(newvals)] <- newvals 
+    #make some space for the newvals
+    count <- count + length(newvals)
+  }
+  result[seq_len(n)]
+}
+```
+
+###function: rsemiGnorm
+```{r}
+rsemiGnorm <- function(n, sig.low=1, sig.up=2, gr.len.mean = 1e2, 
+                       rmaximal.k=rmaximal){
+  #choose the rmaximal function 
+  #(pseudo sim of nl.iid maximal distn) 
+  z.seq <- rmaximal.k(n, min=sig.low, max=sig.up, gr.len.mean = gr.len.mean)
+  list(w.seq = rnorm(n) * z.seq, z.seq=z.seq)
+}
+```
+
+```{r}
+#check this function
+#seq.test <- rsemiGnorm(1e3, sig.low = 0.1, sig.up = 0.7, gr.len.mean = 1e2)
+
+```
+
+
+###function: rGnorm
+```{r}
+#from nl.CLT, generate in approximated sense
+rGnorm <- function(n, sig.low=1, sig.up=2, group.size = 50,  
+                       rmaximal.k=rmaximal){
+  N <- group.size
+  replicate(n, {
+    w.seq <- rsemiGnorm(N, sig.low = sig.low, sig.up = sig.up,
+                      rmaximal.k = rmaximal.k)
+    1/sqrt(N) * sum(w.seq)
+  })
+}
+```
+
+###function:rbinom.maximal
+```{r}
+rbinom.maximal <- function(n, size=1, rmaximal = rmaximal.extrem, p.par = c(.4,.6), varphi = function(x) 2*x-1, gr.len = 1e2){
+  x.seq <- numeric(n)
+  p.seq <- rmaximal(n, min = p.par[1], max = p.par[2], gr.len.mean = gr.len)
+  for (i in seq_along(p.seq)){
+  p <- p.seq[i]
+  x.seq[i] <- varphi(rbinom(1, size = size, prob = p))
+  }
+  list(p.seq=p.seq, x.seq=x.seq)
+  #x.seq
+}
+#as recommended by Prof. Yu, I may consider a dataset with more continous domain rather than only with two values
+#with more continous domain will bring more information and make our analysis easier 
+
+#one difficulty constructed by this example is actually the limited range (binary)
+```
+
+##Estimation of variance uncertainty 
+###Max-mean estimation
+
+####function: max.mean (time order)
+
+```{r}
+max.mean <- function(y, n.guess){
+#always choose m=N/n
+m <- floor(length(y)/n.guess)
+y <- y[1:(m*n.guess)]  
+y.mat <- matrix(y, ncol = n.guess, byrow = TRUE)
+mean.seq <- apply(y.mat, 1, mean)
+mu.low.est <- min(mean.seq)
+mu.up.est <- max(mean.seq)
+c(mu.low.est, mu.up.est)
+}
+```
+
+```{r}
+#N is the length(y)
+max.mean.new <- function(y, n.guess=floor(sqrt(N))){
+#always choose m=n 
+m <- n.guess
+y <- y[1:(m*n.guess)]  
+y.mat <- matrix(y, ncol = n.guess, byrow = TRUE)
+mean.seq <- apply(y.mat, 1, mean)
+mu.low.est <- min(mean.seq)
+mu.up.est <- max(mean.seq)
+c(mu.low.est, mu.up.est)
+}
+```
+
+####function: max.mean2 (value order)
+
+```{r}
+max.mean2 <- function(y, n.guess){
+m <- floor(length(y)/n.guess)
+y <- y[1:(m*n.guess)]
+y.mat <- matrix(y[order(y)], ncol = n.guess, byrow = TRUE)
+mean.seq <- apply(y.mat, 1, mean)
+mu.low.est <- min(mean.seq)
+mu.up.est <- max(mean.seq)
+c(mu.low.est, mu.up.est)
+}
+```
+
+###Improvement: how to choose the group size
+####function: CentralGroup.est
+
+```{r}
+CentralGroup.est <- function(y, n.seq = seq(2,4e2,2),
+                             plot.ind=TRUE, par.true=c(1,4)){
+center <- mean(y)
+N <- length(y)
+#y.ord <- y[order(y)]
+#y.ord[N/2]
+#y.ord[N/2+1]
+#median(y.ord)
+est.all.mat <- matrix(nrow = length(n.seq), ncol = 4)
+#i <- 100
+for (i in seq_along(n.seq)){
+n <- n.seq[i]
+m <- floor(N/n)
+y.mat <- matrix(y[1:(m*n)], ncol = n, byrow = TRUE)
+mean.seq <- apply(y.mat, 1, mean)
+min.seq <- apply(y.mat, 1, min)
+max.seq <- apply(y.mat, 1, max)
+mu.low.est <- min(mean.seq)
+mu.up.est <- max(mean.seq)
+est.all.mat[i,1:2] <- c(mu.low.est, mu.up.est)
+
+l.gr <- max(min.seq[min.seq<=center])
+r.gr <- min(max.seq[max.seq>=center])
+est.all.mat[i,3:4] <- c(l.gr, r.gr)
+}
+L <- est.all.mat[,1]
+R <- est.all.mat[,2]
+l <- est.all.mat[,3]
+r <- est.all.mat[,4]
+ind1 <- min(which(R-r <= 0))
+ind2 <- min(which(l-L <= 0))
+n1 <- n.seq[ind1]; n2 <- n.seq[ind2]
+a2.est <- L[ind2]
+b2.est <- R[ind1]
+if(plot.ind){
+  matplot(n.seq, est.all.mat, type = "l",
+          ylab = "values", xlab = "group size n", 
+          main = "CentralGroup Estimation")
+  abline(h=par.true, col="brown", lty=2)
+  legend("top", 
+         c("GroupMean.min", "GroupMean.max", 
+           "CentralGroup.min", "CentralGroup.max",
+           "par.true"), 
+         col=c(1:4,"brown"), lty=c(1:4,2), 
+         lwd=2, cex=0.4, box.lty = 2, box.col = "grey", 
+         pch = 25)
+}
+return(list(est.all.mat = est.all.mat, ab.est = c(a2.est, b2.est),
+     n.seq = n.seq))
+}
+```
+
+####function: TimValOrd.est
+
+```{r}
+TimValOrd.est <- function(y, step=10, plot.ind=TRUE, 
+                          min.n=1, min.m=2, 
+                          choprule="both.n", 
+                          par.true=c(0,5),
+                          start=1, len.frac=1,
+                          y.scale=1){
+  #time ordering 
+  #c("both.n", "min.n", "max.n","fix.n")
+  #min.n 
+  #min.m = min number of groups
+y <- y*y.scale
+N <- length(y)
+n.seq <- seq(min.n, N/min.m, step)
+est.mat <- matrix(0, ncol=2, nrow=length(n.seq))
+for (i in seq_along(n.seq)){
+  est.mat[i,] <- max.mean(y, n.seq[i])
+}
+est.mat2 <- matrix(0, ncol=2, nrow=length(n.seq))
+#i <- 2
+#?sample
+for (i in seq_along(n.seq)){
+  est.mat2[i,] <- max.mean2(y, n.seq[i])
+}
+if(plot.ind){
+   len <- floor(length(n.seq)*len.frac)
+  ind <- start+seq_len(len)-1
+  n.seq1 <- n.seq[ind]
+  sum2 <- n.seq1[1]+n.seq1[length(n.seq1)]
+  n.lab <- seq(0, ceiling(N/(min.m*100))*100, step*10)
+  n.lab[1] <- 1
+  n.lab1 <- unique(floor(N/seq(min.m, N, 1)))
+  m.lab <- floor(N/n.lab1)
+  matplot(n.seq[ind],cbind(est.mat[rev(ind),], est.mat2[ind,]), 
+          type = "l",
+          col = c(2,2,4,4),
+        ylab = paste("estimation *", y.scale), xlab = "",
+        main="Est for different group sizes",
+        xaxt='n')
+  #axis for the n.seq[rev(ind)]
+  legend("top", 
+         c("TimOrd.min  ", "TimOrd.max  ", 
+           "ValOrd.min  ", "ValOrd.max  ",
+           "par.true"), 
+         col=c(2,2,4,4,"brown"), lty=1:5, 
+         lwd=2, cex=0.4)
+  axis(1, at = sum2 - n.lab, labels = n.lab, line = 1, 
+       col = 2, col.ticks = 2, col.axis = 2)
+  mtext("n.rev", 1, line = 1, at = -40, col = 2)
+  #axis for the n.seq[ind]
+  axis(1, at = n.lab, line = 3,
+       col=4, col.ticks=4, col.axis=4)
+  mtext("n", 1, line=3, at=-40, col=4)
+  #par.true
+  abline(h=par.true[1], col="brown", lty = 5)
+  abline(h=par.true[2], col="brown", lty = 5)
+}
+n1 <- n.seq[sum(est.mat2[,2] - est.mat[rev(seq_along(n.seq)),2] > 0)]
+n2 <- n.seq[sum(est.mat[rev(seq_along(n.seq)),1] - est.mat2[,1] > 0)]
+n12 <- c(n1,n2); n12.ord <- n12[order(n12)]
+min.n <- n12.ord[1]; max.n <- n12.ord[2]
+n.fix <- n.seq[length(n.seq)]
+if(choprule=="min.n"){
+  return(max.mean2(y, min.n)/y.scale)
+} else if(choprule == "max.n"){
+  return(max.mean2(y, max.n)/y.scale)
+} else if(choprule == "both.n"){
+  return(rbind(c(max.mean2(y, n1)/y.scale, n1), 
+               c(max.mean2(y, n2)/y.scale, n2)))
+} else if(choprule == "fix.n"){
+  return(max.mean2(y, n.fix)/y.scale)
+}
+}
+```
+
+###Distance Measure 
+####function: dist
+```{r}
+dist <- function(est){
+  #est is the estimation
+  #par is the true value
+  sqrt(sum((est-par.true)^2))
+}
+```
+
+
+#Function lists New
+
+##functions: get.meanseq
+
+```{r}
+#non-overlapping groups
+get.meanseq.novlp <- function(y, n.guess){
+m <- floor(length(y)/n.guess)
+y <- y[1:(m*n.guess)]  
+y.mat <- matrix(y, ncol = n.guess, byrow = TRUE)
+mean.seq <- apply(y.mat, 1, mean)
+mean.seq
+}
+```
+
+```{r}
+#check the max-mean curve based on LIL
+g <- function(n){
+  #check the ref 
+}
+
+```
+
+
+```{r}
+#overlapping groups
+get.meanseq.ovlp <- function(y, n.guess, step = 2){
+N <- length(y)
+n <- n.guess
+m <- floor((N-n)/step)
+ind.mat1 <- matrix(rep(1:n, m+1), ncol = n, byrow = TRUE)
+ind.mat2 <- matrix(rep((0:m)*step, n), ncol = n, byrow = FALSE)
+ind.mat <- ind.mat1 + ind.mat2
+#y.new <- y[1:(n+m*step)]
+y.mat <- matrix(NA, ncol = n, nrow = m+1)
+for (i in seq_len(m+1)){
+  y.mat[i,] <- y[ind.mat[i,]]
+}
+mean.seq <- apply(y.mat, 1, mean)
+mean.seq
+}
+```
+
+###function: get.groupfn.seq
+```{r}
+require(zoo)
+#moving overlapping window
+#n.guess = 3; step = 2;
+get.groupfn.seq <- function(y, n.guess, novlp.ind = FALSE, step = NULL, groupfn = mean){
+  y.ts <- zoo(y)
+  if(novlp.ind){
+    step = n.guess
+  }
+  re.temp <- rollapply(y.ts, width = n.guess, by = step, FUN = groupfn, align="left")
+  re <- as.numeric(re.temp)
+  re
+}
+#non-ovlp, let n.guess=step
+#y.seq <- 1:6
+#get.groupfn.seq(y = y.seq, n.guess = 3, step = 2, groupfn = mean)
+#get.groupfn.seq(y = y.seq, n.guess = 3, step = 3, groupfn = mean)
+```
+
+```{r}
+get.meanseq.sum <- function(y, n.guess, step=5){
+  N <- length(y)
+  n <- n.guess
+  m.novlp <- floor(N/n)
+  m.ovlp <- floor((N-n)/step) 
+  if(m.novlp < m.ovlp){
+    #choose ovlp
+    m <- m.ovlp
+    ind.mat1 <- matrix(rep(1:n, m+1), ncol = n, byrow = TRUE)
+    ind.mat2 <- matrix(rep((0:m)*step, n), ncol = n, byrow = FALSE)
+    ind.mat <- ind.mat1 + ind.mat2
+#y.new <- y[1:(n+m*step)]
+    y.mat <- matrix(NA, ncol = n, nrow = m+1)
+    for (i in seq_len(m+1)){
+  y.mat[i,] <- y[ind.mat[i,]]
+   }
+mean.seq <- apply(y.mat, 1, mean)
+  } else {
+    #choose novlp
+    m <- m.novlp
+    y <- y[1:(m*n)]  
+    y.mat <- matrix(y, ncol = n.guess, byrow = TRUE)
+    mean.seq <- apply(y.mat, 1, mean)
+  }
+  mean.seq
+}
+```
+
+##function:G-norm CDF
+```{r}
+#ref from Prof.Yang's paper
+pGnorm <- function(z, sdl=.5, sdr=1){
+  C1 <- 2*sdr/(sdl+sdr)
+  C2 <- 2*sdl/(sdl+sdr)
+  C1*pnorm(z/sdr)*(z<=0) + (1-C2*pnorm(-z/sdl))*(z>0)
+}
+
+dGnorm <- function(z, sdl=.5, sdr=1){
+  C <- sqrt(2)/(sqrt(pi)*(sdl+sdr))
+  C*(exp(-z^2/(2*sdr^2))*(z<=0) + exp(-z^2/(2*sdl^2))*(z>0))
+}
+```
+
+
+##function:uppvalue.maxmean
+```{r}
+uppvalue.maxmean <- function(c, m, sdl=0.5, sdr=1){
+  #upprob.less.c <- (pGnorm(c))^m 
+  upprob.more.c <- 1- (1-pGnorm(-c, sdl = sdl, sdr = sdr))^m
+  #uppvalue.final <- upprob.less.c*(c<=0) + upprob.more.c*(c>0)
+  #uppvalue.final
+  upprob.more.c
+}
+```
+
+```{r}
+cdf.maxmean <- function(c, m, sdl=0.5, sdr=1){
+  upprob.less.c <- (pGnorm(c, sdl = sdl, sdr = sdr))^m
+  upprob.less.c
+}
+#we can symbolically compute its pdf
+pdf.maxmean <- function(c, m, sdl=0.5, sdr=1){
+  m*(pGnorm(c, sdl = sdl, sdr = sdr))^(m-1) * dGnorm(c, sdl = sdl, sdr = sdr)
+}
+```
+
+##function:uppvalue.minmean
+```{r}
+#min(Z_i)
+uppvalue.minmean <- function(c, m, sdl=0.5, sdr=1){
+  upprob.less.c <- 1 - (1 - pGnorm(c, sdl = sdl, sdr = sdr))^m
+  upprob.less.c
+}
+```
+
+```{r}
+#p.vaule may become 
+#min(uppvalue.min(a), uppvalue.max(b))
+#change m 
+```
+
+
+```{r}
+pdf.minmean <- function(c, m, sdl=0.5, sdr=1){
+   m*(1 - pGnorm(c, sdl = sdl, sdr = sdr))^(m-1)*dGnorm(c, sdl = sdl, sdr = sdr)
+}
+```
+
+```{r}
+#cdf
+#pdf
+
+#find the critical value
+#z.seq <- seq()
+#pGnorm(-.2)
+#pGnorm(0)
+#pGnorm(.2)
+
+curve(pGnorm, from = -5, to = 5, n=1e3)
+#curve(Vectorize(pGnorm), from = -10, to = -10)
+curve(dGnorm, from = -5, to = 5, n=1e3)
+
+#critical value
+
+```
+
+```{r}
+get.name <- function(v1) {
+  deparse(substitute(v1))
+}
+```
+
+##function: testUncertainty
+```{r}
+#so far, it is the testUncertainty.plot
+#we may also include the est and the numerical results later 
+testUncertainty <- function(dat.seq, ref.seq=NULL,
+                            moment.num=NULL, 
+                            varphi = identity, 
+                            par.true=NULL,
+                            special.groupfn = FALSE,
+                            mov.gr.step = 5, group.function = mean, 
+                            initial.plot=FALSE, group.size.ini = 100, prop.ini = 1/4,
+                            mov.plot=FALSE, n.seq = NULL,
+                            n.min=10, n.max.prop=1/10, n.step=5,
+                            test.plot=TRUE, test.iid.re=FALSE,
+                            test.new.re=TRUE, n.check = NULL, 
+                            test.new.plot = TRUE,
+                            n.check.seq = NULL,  n.consistent.ind = TRUE, 
+                            M.rep=5e2,
+                            hist.bin=35, 
+                            return.ind=FALSE, all.plot = TRUE, plot.re = FALSE){
+  N <- length(dat.seq)
+  dat.name <- get.name(dat.seq)
+  #1/n.max.prop is the number of the groups with largest size, we do not want to make it too small because it will not be representative (especially for the maximal distribution requiring many sample points to show its boundaries). 
+  
+  #set a reminder to the user that test.new.re needs to be TRUE before making test.new.plot be TRUE
+  
+  #need to have special.groupfn = TRUE
+  #to consider mov.gr.step and group.function
+  if(!special.groupfn){
+    get.meanseq=get.meanseq.novlp #if no special group function, use it as default
+  } else {
+    get.meanseq= function(y, n.guess){
+      get.groupfn.seq(y, n.guess, step = mov.gr.step, groupfn = group.function)
+    }
+  }
+  
+  if(!is.null(moment.num)){
+    varphi = function(x) x^moment.num
+  }
+  
+  if(is.null(n.seq)){
+    n.max <- floor(N*n.max.prop)
+    n.seq <- seq(n.min,n.max,n.step)
+  }
+  
+  n.len <- length(n.seq)
+  if (is.null(ref.seq)){
+    ref.seq <- sample(dat.seq, N, replace = TRUE)
+    #consider bootstrap with blocking here
+    #block.len = 5
+    #increase the block.len
+    #only use it for afterwards analysis on the inference part
+    #it may be connected with Type I error
+  }
+  
+  dat2.seq <- varphi(dat.seq) 
+  ref2.seq <- varphi(ref.seq)
+  dat2.meanseq.list <- ref2.meanseq.list <- vector("list", length = n.len)
+  dat2.minmax.mat <- ref2.minmax.mat <- matrix(NA, nrow = n.len, ncol=2)
+  for (i in seq_along(n.seq)){
+    group.size <- n.seq[i]
+    dat2.meanseq <- get.meanseq(dat2.seq, n.guess = group.size)
+    ref2.meanseq <- get.meanseq(ref2.seq, n.guess = group.size)
+    dat2.meanseq.list[[i]] <- dat2.meanseq
+    ref2.meanseq.list[[i]] <- ref2.meanseq
+    dat2.minmax.mat[i,] <- c(min(dat2.meanseq), max(dat2.meanseq))
+    ref2.minmax.mat[i,] <- c(min(ref2.meanseq), max(ref2.meanseq))
+  }
+  #make the curve of critical value
+  D.dat2 <- min(dat2.minmax.mat[,2]) - max(dat2.minmax.mat[,1]) #min(max-mean) -max(min-mean)
+  if (all.plot==FALSE){initial.plot <- mov.plot <- test.plot <- all.plot}
+  if (initial.plot){
+    plot(dat.seq[1:floor(N*prop.ini)], type="l")
+    hist(dat.seq, breaks = "scott")
+    N1 <- floor(N/group.size.ini)*group.size.ini
+    dat.seq.mat <- matrix(dat.seq[seq_len(N1)], nrow = group.size.ini, byrow = FALSE)
+    boxplot(dat.seq.mat, ylab="W.seq", main=paste("Dat.seq with group size = ", group.size.ini))
+    ref.seq.mat <- matrix(ref.seq[seq_len(N1)], nrow = group.size.ini, byrow = FALSE)
+    boxplot(ref.seq.mat, ylab="Ref.seq", main=paste("Ref.seq with group size = ", group.size.ini))
+  } 
+  
+  if (mov.plot){
+   #design an automatical way to set the axis
+   ##decide the x range
+   p1 <- hist(dat2.meanseq.list[[1]], 
+              freq = FALSE, plot = FALSE, warn.unused = FALSE) 
+   p2 <- hist(dat2.meanseq.list[[1]], 
+              freq = FALSE, plot = FALSE, warn.unused = FALSE) 
+   breaks.tol <- c(p1$breaks, p2$breaks)
+   x.lim <- c(min(breaks.tol), max(breaks.tol))
+   ##decide the y range
+   p1 <- hist(dat2.meanseq.list[[n.len]], 
+              freq = FALSE, plot = FALSE, warn.unused = FALSE) 
+   p2 <- hist(dat2.meanseq.list[[n.len]], 
+              freq = FALSE, plot = FALSE, warn.unused = FALSE)
+   #abline(v=par.true, lty=2, col=2, lwd=2)
+   den.tol <- c(p1$density, p2$density)
+   y.lim <- c(0, max(den.tol))
+   for (i in seq_along(n.seq)){
+  p1 <- hist(dat2.meanseq.list[[i]], plot = FALSE)
+  p2 <- hist(ref2.meanseq.list[[i]], plot = FALSE) 
+  
+  plot(p1, col=rgb(0,0,1,1/4), freq = FALSE, xlim = x.lim, ylim = y.lim, border = rgb(0,0,1,1/4), main = paste("Group vars with n=", n.seq[i]))  
+  #"Sampling distn of sample variance: M[1,2] vs U[1,2]"
+  #, xlim=c(-1,1)*0.7
+  plot(p2, col=rgb(1,0,0,1/4), freq = FALSE, border = rgb(1,0,0,1/4),
+        add=TRUE) 
+  abline(v=par.true, col="brown", lty=2, lwd=1.5)
+}
+  }
+  if (test.plot){
+points.dat1 <- data.frame(from="Our Data", maxmin="min", gr.var = dat2.minmax.mat[,1])
+points.dat2 <- data.frame(from="Our Data", maxmin="max", gr.var = dat2.minmax.mat[,2])
+points.dat3 <- data.frame(from="Ref Data", maxmin="min", gr.var = ref2.minmax.mat[,1])
+points.dat4 <- data.frame(from="Ref Data", maxmin="max", gr.var = ref2.minmax.mat[,2])
+
+#points.dat.our <- rbind(points.dat1, points.dat2)
+#points.dat.ref <- rbind(points.dat3, points.dat4)
+
+points.dat <- rbind(points.dat1, points.dat2, points.dat3, points.dat4)
+names <- paste(points.dat$from, points.dat$maxmin)
+points.dat.new <- cbind(points.dat, names, n.seq) 
+
+ #maxmin-mean curve or 2M-mean curve
+ #matplot(n.seq, cbind(dat2.minmax.mat, ref2.minmax.mat), 
+ #           type = "l", col = c(1,1,2,2))
+
+#print(ggplot(points.dat.new, aes(x=n.seq, y=gr.var)) + geom_point(aes(colour=names)) + geom_smooth(aes(colour=names)))
+plot.2Mmean.obj <- ggplot(points.dat.new, aes(x=n.seq, y=gr.var)) + geom_point(aes(colour=names)) + geom_smooth(aes(colour=names))
+#+geom_line
+print(plot.2Mmean.obj)
+#tips from Prof. Kulperger, it will be much better to have a smooth curve to show the trend when the max-mean points involves too much noise (waggling around)
+
+ #scatter plot of maxmin-mean points of Our Data vs Ref Data
+plot.2Mpoints.obj <- ggplot(points.dat.new, aes(x=from, y=gr.var, colour=names)) + geom_point()
+print(plot.2Mpoints.obj)
+#qplot(factor(points.dat$from), points.dat$gr.var, colour=factor(names))
+
+#histogram of maxmin-mean points of Our Data vs Ref Data
+#if(is.null(par.true)){
+#  print(ggplot(points.dat.our, aes(x=gr.var, fill=maxmin)) + geom_histogram(position = "identity", alpha=0.8, bins = hist.bin) + labs("Our Data: Histogram of maxmean and minmean points"))
+#} else {
+#  print(ggplot(points.dat.our, aes(x=gr.var, fill=maxmin)) + geom_histogram(position = "identity", alpha=0.8, bins = hist.bin) + geom_line(xintercept=par.true, colour="brown") + labs("Our Data: Histogram of maxmean and minmean points"))
+#}
+
+#print(ggplot(points.dat.ref, aes(x=gr.var, fill=maxmin)) + geom_histogram(position = "identity", alpha=0.8, bins = hist.bin) + geom_vline(xintercept=mean(ref2.seq), colour="brown") + labs("Ref Data: Histogram of maxmean and minmean points"))
+
+#put the histograms together 
+if(is.null(par.true)){
+  plot.2Mhist.obj <- ggplot(points.dat, aes(x=gr.var, fill=from)) + geom_histogram(position = "identity", alpha=0.5, bins=hist.bin)
+  print(plot.2Mhist.obj)
+} else{
+  plot.2Mhist.obj <- ggplot(points.dat, aes(x=gr.var, fill=from)) + geom_histogram(position = "identity", alpha=0.5, bins=hist.bin) + geom_vline(xintercept = c(mean(ref2.seq), par.true), colour=c("brown", "red", "red"))
+  print(plot.2Mhist.obj)
+}
+
+#maxmin-clustering plot
+minmax.mat.sum1 <- data.frame(min.gr.var = dat2.minmax.mat[,1], max.gr.var= dat2.minmax.mat[,2], names=factor("Our Data"))
+minmax.mat.sum2 <- data.frame(min.gr.var = ref2.minmax.mat[,1], max.gr.var= ref2.minmax.mat[,2], names=factor("Ref Data"))
+
+minmax.mat.sum <- rbind(minmax.mat.sum1, minmax.mat.sum2)
+
+#plot the points with different sizes
+#qplot(min.gr.var, max.gr.var, data = minmax.mat.sum, colour=names)
+plot.2Mcluster.obj <- ggplot(minmax.mat.sum,aes(min.gr.var, max.gr.var, colour=names)) + geom_point(alpha=0.6) + geom_abline(intercept = 0, slope = 1, colour = "red", size = 1.25)
+print(plot.2Mcluster.obj)
+  }
+  #test with null: iid F
+  if (test.iid.re){
+    D.ref2.seq <- numeric(M.rep)
+    D.ref2.seq <- replicate(M.rep,{
+      ref2.seq <- sample(dat2.seq, N, replace = TRUE)
+      ref2.minmax.mat <- matrix(NA, nrow = n.len, ncol=2)
+      for (i in seq_along(n.seq)){
+    group.size <- n.seq[i]
+    ref2.meanseq <- get.meanseq(ref2.seq, n.guess = group.size)
+    ref2.minmax.mat[i,] <- c(min(ref2.meanseq), max(ref2.meanseq))
+  }
+  D.ref2 <- min(ref2.minmax.mat[,2]) - max(ref2.minmax.mat[,1]) #min(max-mean) -max(min-mean)
+  D.ref2
+    })
+    #print(ggplot(points.dat, aes(x=gr.var, fill=from)) + geom_histogram(position = "identity", alpha=0.5, bins=hist.bin))
+    D.seq <- c(D.ref2.seq, D.dat2)
+    hist(D.ref2.seq, xlim = c(min(D.seq)*0.9, max(D.seq)*1.1))
+    abline(v=D.dat2, col=2, lty=2, lwd=1.2)
+    
+    cat(paste("Under the null, the relative location of our dataset is at the prob", mean(D.ref2.seq>D.dat2))) #p-value
+  }
+  if (test.new.re){
+    #choose the group size (from data or background)
+    if(is.null(n.check)){n.check <- 2e2}
+    #n.check <- 150
+    m.check <- floor(N/n.check)
+    dat2.seq.std <- dat2.seq-mean(dat2.seq)
+    dat2.meanseq.std <- get.meanseq(dat2.seq.std, n.guess = n.check)
+    dat4.seq.std <- dat2.seq.std^2
+    dat4.meanseq.std <- get.meanseq(dat4.seq.std, n.guess = n.check)
+    #estimate the sd bounds
+    sdl.est <- sqrt(min(dat4.meanseq.std)) #lower sd
+    sdr.est <- sqrt(max(dat4.meanseq.std)) #upper sd
+    #give the upper p-value for order statistics
+    p.maxmean <- uppvalue.maxmean(sqrt(n.check)*max(dat2.meanseq.std), sdl = sdl.est, sdr = sdr.est, m=m.check)
+    p.minmean <- uppvalue.minmean(sqrt(n.check)*min(dat2.meanseq.std), sdl = sdl.est, sdr = sdr.est, m=m.check)
+    cat(paste("Under the varphi-certainty null,","with group size = ", n.check,",", "\n", 
+                "the upper p-value of the max-mean stats is", format(p.maxmean, digits = 6), ";","\n", 
+                "the upper p-value of the min-mean stats is", format(p.minmean, digits = 6)),".", "\n")
+    p.new.re <- c(p.maxmean, p.minmean)
+    if (test.new.plot){
+    #set a reminder to the reader that test.new.re needs to be TRUE
+    #print a warning for this  
+    if(is.null(n.check.seq)){
+      if(n.consistent.ind){
+        n.check.seq <- n.seq
+      } else {
+        n.check.seq <- seq(1e2, floor(N/10), 20)
+      }
+    }
+    p.max.seq <- p.min.seq <- numeric(length(n.check.seq))
+    for (i in seq_along(n.check.seq)){
+     n.check <- n.check.seq[i]
+     m.check <- floor(N/n.check)
+    #estimate the variance bounds
+    dat2.seq.std <- dat2.seq-mean(dat2.seq)
+    dat2.meanseq.std <- get.meanseq(dat2.seq.std, n.guess = n.check)
+    dat4.seq.std <- dat2.seq.std^2
+    dat4.meanseq.std <- get.meanseq(dat4.seq.std, n.guess = n.check)
+    sdl.est <- min(sqrt(dat4.meanseq.std)) #lower sd
+    sdr.est <- max(sqrt(dat4.meanseq.std)) #upper sd
+    #give the upper p-value for order statistics
+    p.maxmean <- uppvalue.maxmean(sqrt(n.check)*max(dat2.meanseq.std), sdl = sdl.est, sdr = sdr.est, m=m.check)
+    p.minmean <- uppvalue.minmean(sqrt(n.check)*min(dat2.meanseq.std), sdl = sdl.est, sdr = sdr.est, m=m.check)
+    p.max.seq[i] <- p.maxmean
+    p.min.seq[i] <- p.minmean
+}
+    p.maxmin.dat1 <- data.frame(groupsize.check = n.check.seq, 
+                           uppvalue.maxmean = p.max.seq, 
+                           uppvalue.minmean = p.min.seq)
+   p.maxmin.dat <- melt(p.maxmin.dat1, id.vars = "groupsize.check")
+   plot.test.obj <- ggplot(data = p.maxmin.dat, aes(x=groupsize.check, y=value))  + geom_point(aes(colour=variable)) + geom_smooth(aes(colour=variable)) + geom_hline(yintercept = c(0.02,0.30), col = "brown", lty=2)
+   print(plot.test.obj)
+   # + geom_line(aes(lty=variable)) 
+   }
+    #return(p.new.re) #return this pvalue vector under n.check
+  }
+  if(return.ind){
+    if(plot.re){
+      return(list(plot.test.obj = plot.test.obj,
+                  plot.2Mmean.obj = plot.2Mmean.obj, 
+                  plot.2Mpoints.obj = plot.2Mpoints.obj, 
+                  plot.2Mhist.obj = plot.2Mhist.obj,
+                  plot.2Mcluster.obj = plot.2Mcluster.obj))
+    } else {
+      return(list(dat2.meanseq.list = dat2.meanseq.list, 
+                ref2.meanseq.list = ref2.meanseq.list,
+                dat2.minmax.mat = dat2.minmax.mat,
+                ref2.minmax.mat = ref2.minmax.mat, 
+                p.new.re = p.new.re)
+           )
+    }
+  }
+}
+```
+
+```{r}
+StrechSmalls <- log1p
+```
+
+```{r}
+#write a generic function for test of uncertainty
+#we may apply any general operation to each group
+
+```
+
+This document is a brief version trying to give a stremeline story about the Knightian uncertainty in practice. Please turn to the 01-Gframe-Stats-201901 version for more details. 
+
+#Run Codes ABOVE 
+(We may pack the current collection of functions into a R package.)
+
+# Knightian Uncertainty in Time Series
+
+This part is an attempt in explore the model uncertainty in the context of time series. We will mostly study these aspects: 
+
+- Distribution uncertainty in the noise part (which is related to the current progress in the joint project with Defei); 
+
+- Model uncertainty in the transfer function part: it may be the uncertainty in the model specfication or the parameter uncertainty in a fixed model specification (the parameter may change over time. The latter one also motivates the existing regime-switching types of models in time series.  
+
+
+# Pseudo Simulation Study (from SLLN)
+This section is motivated by the study of the SLLN under the G-expectation framework. 
+
+## Preparation
+```{r}
+#Real Data preparation
+startdate <- "1990-01-03" #avoid the holidays (a minor issue here)
+#enddate <- "2019-01-01"
+enddate <- "2019-12-10" #avoid the holidays
+#30 years 
+
+#try higher frequency to have more points
+#North American Market: S&P500
+#getSymbols("^GSPC", from=startdate, to=enddate, by=60*60)
+getSymbols("^GSPC", from=startdate, to=enddate)
+#head(GSPC)
+gspc <- GSPC[,"GSPC.Close"] #gspc <- Cl(GSPC)
+logReturn.gspc.old <- diff(log(gspc))
+logReturn.gspc <- logReturn.gspc.old[-1]
+logReturn.gspc.num <- as.numeric(logReturn.gspc)
+any(is.na(gspc))
+
+logReturn.gspc.sc <- logReturn.gspc*10
+x.full<- logReturn.gspc.sc
+
+```
+
+```{r}
+startdate <- "1990-01-03" #avoid the holidays (a minor issue here)
+#enddate <- "2019-01-01"
+enddate <- "2019-12-10" #avoid the holidays
+#30 years 
+
+#try higher frequency to have more points
+#North American Market: S&P500
+#getSymbols("^GSPC", from=startdate, to=enddate, by=60*60)
+getSymbols("^GSPC", from=startdate, to=enddate)
+#head(GSPC)
+gspc <- GSPC[,"GSPC.Close"] #gspc <- Cl(GSPC)
+logReturn.gspc.old <- diff(log(gspc))
+logReturn.gspc <- logReturn.gspc.old[-1]
+logReturn.gspc.num <- as.numeric(logReturn.gspc)
+any(is.na(gspc))
+
+logReturn.gspc.sc <- logReturn.gspc*10
+x.full<- logReturn.gspc.sc
+
+#garch 
+
+plot(x.full, type = "l",main="S&P 500 log Returns") 
+y.full <- x.full^2
+avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+#names(x.full)
+avg.seq1 <- xts(avg.seq, order.by = index(x.full))
+plot(avg.seq1, type = "l")
+#index(x.full)
+
+ind.ex <- 1:10
+plot(avg.seq1[-ind.ex], type = "l")
+#we can see the three cycle
+#try to find a frequentist explanation
+#check the garch model pattern 
+n.seq <- seq_along(avg.seq)[-ind.ex]
+#N <- length(avg.seq)
+infsup.seq.logreturn <- sapply(n.seq, function(n) c(min(avg.seq[-seq_len(n-1)]), max(avg.seq[-seq_len(n-1)])))
+#we only have one point at the last stage
+#moving average
+matplot(n.seq, cbind(t(infsup.seq.logreturn), avg.seq[n.seq]), type = "l", col = c(2,"blue",1))
+#ggplot
+#similar to max-min curve
+plot(n.seq, infsup.seq.logreturn[1, ], type = "l", main = "liminf")
+plot(n.seq, infsup.seq.logreturn[2, ], type = "l", main = "limsup")
+#check the existing simulation check on the SLLN
+#can we say the lower sigma and upper sigma are also changing in different time period? 
+```
+
+#Variance Uncertainty: Real-world Dataset 
+##Finance: log return dataset
+Reference to G-VaR paper
+
+###Dataset Input
+```{r}
+#startdate <- "1990-01-01 00:00:00"
+#enddate <- "2019-01-01 00:00:00"
+#startdate <- "1989-01-01"
+startdate <- "1989-01-03" #avoid the holidays (a minor issue here)
+#enddate <- "2019-01-01"
+enddate <- "2019-05-30" #avoid the holidays
+#30 years 
+
+#try higher frequency to have more points
+#North American Market: S&P500
+#getSymbols("^GSPC", from=startdate, to=enddate, by=60*60)
+getSymbols("^GSPC", from=startdate, to=enddate)
+#head(GSPC)
+gspc <- GSPC[,"GSPC.Close"] #gspc <- Cl(GSPC)
+logReturn.gspc.old <- diff(log(gspc))
+logReturn.gspc <- logReturn.gspc.old[-1]
+logReturn.gspc.num <- as.numeric(logReturn.gspc)
+any(is.na(gspc))
+
+#Chinese Market: HSI
+getSymbols("^HSI", from=startdate, to=enddate)
+hsi <- HSI[,"HSI.Close"] #gspc <- Cl(GSPC)
+#there are NAs in hsi,
+na.ind <- which(is.na(hsi))
+#hsi[na.ind]
+#we can see that the missing values are from the holidays
+#so far we simply remove the missing values
+hsi.new <- na.omit(hsi)
+#we may fill the NAs by interpolation in the future
+#to compare with other markets (to have the same dimension)
+logReturn.hsi.old <- diff(log(hsi.new))
+logReturn.hsi <- logReturn.hsi.old[-1]
+logReturn.hsi.num <- as.numeric(logReturn.hsi)
+#for the record, 
+#the time zones of the dates are consistent: both UTC.
+```
+
+###Initial analysis
+```{r}
+# Plot the S&P 500 returns
+#ggplot( sp500LRdf, aes(Date) ) + 
+#  geom_line( aes( y = logret ) ) +
+#  labs( title = "S&P 500 log Returns")
+#GSPC
+plot(gspc, type = "l", main = "S&P 500")
+plot(logReturn.gspc, type = "l",main="S&P 500 log Returns") 
+#2008 Financial Crisis
+mean.seq.gspc <- get.meanseq.novlp(logReturn.gspc.num^2, n.guess = 20)
+plot(mean.seq.gspc, type = "l")
+
+#HSI
+plot(hsi.new, type = "l", main = "HSI")
+plot(logReturn.hsi, type = "l",main="log return of HSI") 
+mean.seq.gspc <- get.meanseq.novlp(logReturn.hsi.num^2, n.guess = 20)
+plot(mean.seq.gspc, type = "l")
+
+#connected to model diagnostic 
+logReturn.gspc.sc <- logReturn.gspc*10
+```
+
+####Check the SLLN under sublinear expectation
+Let 
+$$
+X_i = \ln\frac{S_{i+1}}{S_i}
+$$
+Suppose we treat $X_i$ as ones with mean-certainty and variance uncertainty, 
+let 
+$$
+Y_i = X_i^2,
+$$
+then $Y_i$ should have mean-uncertainty. 
+We may also check this condition 
+$$
+Y_i \leq Y\text{ q.s.},
+$$
+and 
+$$
+\lim_{n\to\infty}\hat E[|Y|I(|Y|>n)]=0. 
+$$
+If these conditions hold, we should have (the SLLN)
+$$
+v(\underline{\sigma}^2\leq \liminf_{n}\frac{\sum_{i=1}^n Y_i}{n} 
+\leq \limsup_{n} \frac{\sum_{i=1}^n}{n}Y_i\leq \overline{\sigma}^2) = 1.
+$$
+
+(also check the LIL)
+$$
+
+$$
+
+
+```{r}
+N <- length(logReturn.gspc.sc)
+sd1 <- sd(logReturn.gspc.sc)
+sd2 <- sd(logReturn.gspc.sc)*3
+#x.full<- logReturn.gspc
+x.full <- rnorm(N, sd = sd1 + rbinom(N, 1, prob = 0.3)*(sd2-sd1))
+#garch 
+
+#normal mixture 
+#plot(x.full, type = "l",main="S&P 500 log Returns") 
+plot(x.full, type = "l",main="check") 
+y.full <- x.full^2
+avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+
+plot(avg.seq, type = "l")
+
+plot(avg.seq[-(1:10)], type = "l")
+
+
+n.seq <- seq_along(avg.seq)[-1]
+#N <- length(avg.seq)
+infsup.seq <- sapply(n.seq, function(n) c(min(avg.seq[-seq_len(n-1)]), max(avg.seq[-seq_len(n-1)])))
+#we only have one point at the last stage
+#moving average
+matplot(n.seq, t(infsup.seq), type = "l")
+#similar to max-min curve
+plot(n.seq, infsup.seq[1, ], type = "l")
+plot(n.seq, infsup.seq[2, ], type = "l")
+
+```
+
+```{r}
+N <- length(logReturn.gspc.num)
+sd1 <- sd(logReturn.gspc.num)
+sd2 <- sd(logReturn.gspc.num)*3
+re <- rsemiGnorm(N, sig.low = sd1, sig.up = sd2)
+x.full <- re$w.seq
+#x.full<- logReturn.gspc
+#x.full <- rnorm(N, sd = sd1 + rbinom(N, 1, prob = 0.3)*(sd2-sd1))
+#garch 
+
+#normal mixture 
+#plot(x.full, type = "l",main="S&P 500 log Returns") 
+plot(x.full, type = "l", main="check") 
+y.full <- x.full^2
+avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+
+plot(avg.seq, type = "l")
+
+plot(avg.seq[-(1:10)], type = "l")
+
+n.seq <- seq_along(avg.seq)[-1]
+#N <- length(avg.seq)
+infsup.seq <- sapply(n.seq, function(n) c(min(avg.seq[-seq_len(n-1)]), max(avg.seq[-seq_len(n-1)])))
+#we only have one point at the last stage
+#moving average
+matplot(n.seq, t(infsup.seq), type = "l")
+#similar to max-min curve
+plot(n.seq, infsup.seq[1, ], type = "l")
+plot(n.seq, infsup.seq[2, ], type = "l")
+```
+
+####New Preparation
+```{r}
+startdate <- "1990-01-03" #avoid the holidays (a minor issue here)
+#enddate <- "2019-01-01"
+enddate <- "2019-12-10" #avoid the holidays
+#30 years 
+
+#try higher frequency to have more points
+#North American Market: S&P500
+#getSymbols("^GSPC", from=startdate, to=enddate, by=60*60)
+getSymbols("^GSPC", from=startdate, to=enddate)
+#head(GSPC)
+gspc <- GSPC[,"GSPC.Close"] #gspc <- Cl(GSPC)
+logReturn.gspc.old <- diff(log(gspc))
+logReturn.gspc <- logReturn.gspc.old[-1]
+logReturn.gspc.num <- as.numeric(logReturn.gspc)
+any(is.na(gspc))
+
+logReturn.gspc.sc <- logReturn.gspc*10
+x.full<- logReturn.gspc.sc
+
+#garch 
+
+plot(x.full, type = "l",main="S&P 500 log Returns") 
+y.full <- x.full^2
+avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+#names(x.full)
+avg.seq1 <- xts(avg.seq, order.by = index(x.full))
+plot(avg.seq1, type = "l")
+#index(x.full)
+
+ind.ex <- 1:10
+plot(avg.seq1[-ind.ex], type = "l")
+#we can see the three cycle
+#try to find a frequentist explanation
+#check the garch model pattern 
+n.seq <- seq_along(avg.seq)[-ind.ex]
+#N <- length(avg.seq)
+infsup.seq.logreturn <- sapply(n.seq, function(n) c(min(avg.seq[-seq_len(n-1)]), max(avg.seq[-seq_len(n-1)])))
+#we only have one point at the last stage
+#moving average
+matplot(n.seq, cbind(t(infsup.seq.logreturn), avg.seq[n.seq]), type = "l", col = c(2,"blue",1))
+#ggplot
+#similar to max-min curve
+plot(n.seq, infsup.seq.logreturn[1, ], type = "l", main = "liminf")
+plot(n.seq, infsup.seq.logreturn[2, ], type = "l", main = "limsup")
+#check the existing simulation check on the SLLN
+#can we say the lower sigma and upper sigma are also changing in different time period? 
+```
+- check the a sub period (e.g. to 2010), 
+- check a different index (VIX, NASDAQ),
+- also check different block of the data sequence to at least get some replications of liminf S_n/n and limsup S_n/n. 
+(to better see the distributions of them.)
+(but here we are trying to see some patterns quasi-surely.)
+
+- check this on the semi-G-normal sequence 
+- also sequence without mean uncertainty
+
+```{r}
+N <- length(logReturn.gspc.sc)
+sd1 <- sd(logReturn.gspc.sc)
+sd2 <- sd(logReturn.gspc.sc)*3
+#x.full<- logReturn.gspc
+x.full <- rnorm(N, sd = sd1 + rbinom(N, 1, prob = 0.3)*(sd2-sd1))
+#garch 
+
+#normal mixture 
+#plot(x.full, type = "l",main="S&P 500 log Returns") 
+plot(x.full, type = "l",main="check") 
+y.full <- x.full^2
+
+slln.check(y.full)
+```
+
+```{r}
+slln.check <- function(y.full, ind.ex = 1:10, par.true = NULL){
+  avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+#names(x.full)
+  
+#check the garch model pattern 
+n.seq <- seq_along(avg.seq)[-ind.ex]
+#N <- length(avg.seq)
+infsup.seq.logreturn <- sapply(n.seq, function(n) c(min(avg.seq[-seq_len(n-1)]), max(avg.seq[-seq_len(n-1)])))
+#we only have one point at the last stage
+#moving average
+if (is.null(par.true)){
+  matplot(n.seq, cbind(t(infsup.seq.logreturn), avg.seq[n.seq]), type = "l", col = c(2,"blue",1))
+} else {
+  matplot(n.seq, cbind(t(infsup.seq.logreturn), avg.seq[n.seq]), type = "l", col = c(2,"blue",1), ylim = par.true)
+  abline(h = par.true, col = "brown")
+}
+
+#ggplot
+#similar to max-min curve
+plot(n.seq, infsup.seq.logreturn[1, ], type = "l", main = "liminf")
+plot(n.seq, infsup.seq.logreturn[2, ], type = "l", main = "limsup")
+#return(NULL)
+}
+```
+
+```{r}
+#set.seed(1234)
+N <- length(logReturn.gspc.sc)
+sd1 <- sd(logReturn.gspc.sc)
+sd2 <- sd(logReturn.gspc.sc)*3
+re <- rsemiGnorm(N, sig.low = sd1, sig.up = sd2, rmaximal.k = rmaximal.extrem)
+x.full <- re$w.seq
+y.full <- x.full^2
+plot(re$z.seq, type = "l")
+slln.check(y.full, par.true = c(sd1, sd2)^2, ind.ex = c(1:20, seq(round(N*0.8), N, 1)))
+#mixture of different samples 
+#the discusssion on the bounds may come down to the future part
+#check the middle range n
+```
+
+- draw the middle part of the data sequence
+- try replications of the simulation (to at least get a frequentist-version explanation)
+
+- consider the future behavior 
+
+```{r}
+set.seed(250881732)
+N <- 1e3 
+sd1 <- sd(logReturn.gspc.sc)
+sd2 <- sd(logReturn.gspc.sc)*3
+M <- 1e2
+avg.mat <- replicate(M, {
+  re <- rsemiGnorm(N, sig.low = sd1, sig.up = sd2, rmaximal.k =    rmaximal.extrem)
+  x.full <- re$w.seq
+  y.full <- x.full^2
+  avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+  avg.seq 
+})
+  
+ind.ex1 <- 1:20
+n.seq <- seq_len(N)[-ind.ex1]
+matplot(n.seq, avg.mat[-ind.ex1, ], type = "l", main = "semi-G-normal: S_n/n")
+abline(h = c(sd1, sd2)^2, col = "brown")
+
+matplot(n.seq, avg.mat[-ind.ex1, sample(1:M, 10)], type = "l", main = "semi-G-normal: S_n/n", ylim = c(0,0.2))
+abline(h = c(sd1, sd2)^2, col = "brown")
+
+#draw this many times 
+#this does make sense to me
+```
+
+```{r}
+re <- rsemiGnorm(N*2, sig.low = sd1, sig.up = sd2, rmaximal.k =    rmaximal.extrem)
+  x.full <- re$w.seq
+  z.full <- re$z.seq
+  plot(z.full, type = "l")
+  plot(x.full, type = "l")
+  #not too many blocks
+  #need to touch the extreme
+  #it is possible to have only one block
+  #y.full <- x.full^2
+  #avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+
+  #garch model + jump process
+  #(to describe the extreme events)
+```
+
+
+```{r}
+get.inf <- function(my.seq, ind.ex = ind.ex1){
+  n.seq <- seq_along(my.seq)
+  n.seq1 <- n.seq[-ind.ex]
+  sapply(n.seq1, function(n) min(my.seq[-seq_len(n-1)]))
+}
+
+get.sup <- function(my.seq, ind.ex = ind.ex1){
+  n.seq <- seq_along(my.seq)
+  n.seq1 <- n.seq[-ind.ex]
+  sapply(n.seq1, function(n) max(my.seq[-seq_len(n-1)]))
+}
+```
+
+```{r}
+inf.mat <- apply(avg.mat, 2, get.inf)
+sup.mat <- apply(avg.mat, 2, get.sup)
+
+
+matplot(n.seq, sup.mat, type = "l", ylim = c(0,0.2), main = "semi-G-normal: sup S_n/n")
+abline(h = c(sd1, sd2)^2, col = "brown")
+
+matplot(n.seq, inf.mat, type = "l", ylim = c(0,0.2), main = "semi-G-normal: inf S_n/n")
+abline(h = c(sd1, sd2)^2, col = "brown")
+#they all behave like a maximal distribution
+#this becomes a good understanding of the SLLN under sublinear expectation for me.
+#the key understanding here is that I need to run the simulations many times (to go through different kinds of scenarios.)
+```
+
+```{r}
+#slln.check.new <- function()
+```
+
+
+It also gives us some intuition that why the min of Maximal and the max of Maximal identical distributions in sublinear world. 
+
+- write it into a numerical report (to be sent to my supervisors).
+
+(in order to see the ambiguity, we need to simulate the possible future many times.)
+
+- also check the data example (using the square of semi-G-normal sequence + using the real dataset: log return of stock prices.)
+
+- use existing different models to predict the future behavior of S_n/n. 
+
+```{r}
+#this is a different story if we run this from mixture model
+N <- 1e3
+#sd1 <- sd(logReturn.gspc.sc)
+#sd2 <- sd(logReturn.gspc.sc)*3
+sd1 <- 0.5
+sd2 <- 1
+M <- 1e2
+avg.mat <- replicate(M, {
+  #mixture distribution
+  z.seq <- runif(N, min = sd1, max = sd2)
+  x.full <- z.seq*rnorm(N)
+  y.full <- x.full^2
+  avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+  avg.seq 
+})
+
+ind.ex1 <- 1:20
+n.seq <- seq_len(N)[-ind.ex1]
+matplot(n.seq, avg.mat[-ind.ex1, ], type = "l", ylim = c(sd1, sd2)^2, main = "mixture")
+abline(h = c(sd1, sd2)^2, col = "brown")
+#classical strong law of large numbers
+```
+
+
+```{r}
+inf.mat <- apply(avg.mat, 2, get.inf)
+sup.mat <- apply(avg.mat, 2, get.sup)
+
+
+matplot(n.seq, sup.mat, type = "l", ylim = c(0.2,1), main = "mixture")
+abline(h = c(sd1, sd2)^2, col = "brown")
+
+matplot(n.seq, inf.mat, type = "l", ylim = c(0.2,1), main = "mixture")
+abline(h = c(sd1, sd2)^2, col = "brown")
+```
+####Check SLLN on the real dataset
+
+```{r}
+get.avgseq <- function(x){
+  sapply(seq_along(x), function(n) mean(x[seq_len(n)]))
+}
+```
+
+```{r}
+#check this with the real dataset
+N <- length(logReturn.gspc.sc)
+#sd1 <- sd(logReturn.gspc.sc)
+#sd2 <- sd(logReturn.gspc.sc)*3
+n <- 1e3
+#m <- 1e2
+m <- floor(N/n)
+N1 <- m*n
+
+y.full <- logReturn.gspc.sc[seq_len(N1)]^2
+
+logreturn.mat <- matrix(y.full, ncol = m, byrow = FALSE)
+
+avg.mat <- apply(logreturn.mat, 2, get.avgseq)
+
+#similar to the max-mean thinking 
+#we may need to change the group size 
+
+ind.ex1 <- 1:5
+n.seq <- seq_len(n)[-ind.ex1]
+matplot(n.seq, avg.mat[-ind.ex1, ], type = "l", main = "semi-G-normal: S_n/n")
+
+#they are many extreme events
+#abline(h = c(sd1, sd2)^2, col = "brown")
+
+#we will also need a reference dataset. 
+```
+
+```{r}
+#consider a sequence of fixed pin-points
+#identify the crisis period
+#to study different scenarios
+#which describes the potential volatility uncertainty
+y.full <- logReturn.gspc.sc^2
+N <- length(y.full)
+n <- 1e3
+#m <- 1e2
+m <- 1e2
+ind.start <- floor(seq(1, N-n+1, length.out = m))
+ind.mat <- t(sapply(ind.start, function(a) (a-1) + seq_len(n)))
+#each row is the new index sequence
+avg.mat <- apply(ind.mat, 1, function(indseq){
+  get.avgseq(y.full[indseq])
+})
+
+ind.ex1 <- 1:20
+n.seq <- seq_len(n)[-ind.ex1]
+matplot(n.seq, avg.mat[-ind.ex1, ], type = "l", main = "real log return dataset: S_n/n")
+#re.mat <- get.groupfn.seq(y.full, n.guess = 1e3, novlp.ind = FALSE, step = 1e2, groupfn = get.avgseq)
+
+#get more dense results
+
+#check the garch setup
+#(one single garch versus ambiguous garch)
+```
+
+```{r}
+plot(logReturn.gspc.sc[seq_len(N1)], type = "l")
+plot(y.full, type = "l")
+```
+
+
+$$
+\liminf_n a_n = \lim_{n\to \infty} \inf_{m\geq n} a_m
+$$
+
+$$
+\liminf_n a_n = \lim_{n\to \infty} \sup_{m\geq n} a_m
+$$
+(learn more about the related knowledge)
+```{r}
+#check the liminf and limsup 
+liminf <- function(an.seq){
+  #inf
+  min(an.seq[])
+  #take limit 
+  
+}
+
+```
+
+```{r}
+set.seed(250881732)
+N <- 1e3
+sd1 <- 0.5
+sd2 <- 1
+M <- 1e2
+avg.mat <- replicate(M, {
+  re <- rsemiGnorm(N, sig.low = sd1, sig.up = sd2, rmaximal.k =    rmaximal.extrem)
+  x.full <- re$w.seq
+  y.full <- x.full^4
+  avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+  avg.seq 
+})
+
+ind.ex1 <- 1:50
+n.seq <- seq_len(N)[-ind.ex1]
+matplot(n.seq, avg.mat[-ind.ex1, ], type = "l", main = "semi-G-normal: S_n/n")
+abline(h = 3*c(sd1, sd2)^4, col = "brown")
+```
+
+```{r}
+inf.mat <- apply(avg.mat, 2, get.inf)
+sup.mat <- apply(avg.mat, 2, get.sup)
+
+matplot(n.seq, sup.mat, type = "l", ylim = c(0,5), main = "limsup")
+abline(h = 3*c(sd1, sd2)^4, col = "brown")
+
+matplot(n.seq, inf.mat, type = "l", ylim = c(0,5), main = "liminf")
+abline(h = 3*c(sd1, sd2)^4, col = "brown")
+```
+
+```{r}
+#check the skewness
+#which should not have much uncertainty
+set.seed(250881732)
+N <- 1e3
+sd1 <- 0.5
+sd2 <- 1
+M <- 1e2
+avg.mat <- replicate(M, {
+  re <- rsemiGnorm(N, sig.low = sd1, sig.up = sd2, rmaximal.k =    rmaximal.extrem)
+  x.full <- re$w.seq
+  y.full <- x.full^3
+  avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+  avg.seq 
+})
+
+ind.ex1 <- 1:50
+n.seq <- seq_len(N)[-ind.ex1]
+matplot(n.seq, avg.mat[-ind.ex1, ], type = "l", main = "semi-G-normal: S_n/n")
+#abline(h = 3*c(sd1, sd2)^4, col = "brown")
+```
+
+
+```{r}
+inf.mat <- apply(avg.mat, 2, get.inf)
+sup.mat <- apply(avg.mat, 2, get.sup)
+
+matplot(n.seq, sup.mat, type = "l", ylim = c(0,5), main = "mixture")
+#abline(h = 3*c(sd1, sd2)^4, col = "brown")
+
+matplot(n.seq, inf.mat, type = "l", ylim = c(0,5), main = "mixture")
+#abline(h = 3*c(sd1, sd2)^4, col = "brown")
+```
+
+```{r}
+#it comes back to the thinking of the max-mean method
+```
+
+
+####Next: pseudo simulation of G-normal
+The theoretical value can be computed by using the iterative method:
+$$
+\hat{E}[((W_1+W_2)/\sqrt{2})^3] = \max_{v\in [\underline{\sigma}, \overline{\sigma}]} \frac{3}{2\sqrt{2}} v(\overline{\sigma}^2 E[Y^+] - \underline{\sigma}^2 E[Y^-]).
+$$
+
+```{r}
+#compute the theoretical value
+expt.w12 <- function(sdint){
+  sdl <- sdint[1]
+  sdr <- sdint[2]
+  C <- 3/(4*sqrt(pi))*(sdr^2-sdl^2)
+  #C*sdint
+  C*sdr*c(-1,1)
+}
+
+expt.w12(c(1, 2))
+#expt.w12(c(0.6, 1))
+```
+
+```{r}
+#pseudo simulation of W1 + W2
+
+```
+
+
+```{r}
+par.true <- c(0.2, 0.6)
+#decide the blocking length
+N1 <- 1e2
+N2 <- 1e2
+#w1.seq <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2])
+#w2.seq <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2])
+set.seed(1234)
+#I may go through backward simulation
+#future has no effect on the past
+w12.seq <- numeric(N1*N2)
+ind.mat <- matrix(seq_len(N1*N2), ncol = N2, byrow = TRUE)
+w12.ref <- w12.mat <- matrix(NA, ncol = N2, nrow = N1, byrow = TRUE)
+re <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], gr.len.mean = 1e2)
+w1.seq <- re$w.seq
+for (i in seq_along(w1.seq)){
+  re2 <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], gr.len.mean = 1e2)
+  w2.seq <- re2$w.seq
+  w2.ref <- sample(w2.seq, size = length(w2.seq), replace = TRUE)
+  w12.mat[i,] <- w1.seq[i] + w2.seq
+  w12.ref[i,] <- w1.seq[i] + w2.ref
+}
+
+#w12.seq <- as.numeric(w12.mat) #by column
+w12.seq <- as.numeric(t(w12.mat)) #by row
+w12.ref <- as.numeric(t(w12.ref))
+#w2.seq <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2])
+
+#w12.seq <- rep(w1.seq, each=N2) + rep(w2.seq, N1)
+
+#parallel computing here
+
+#how to understand the simulate the sequential independence
+
+N <- N1*N2
+plot(w1.seq, type = "l")
+plot(w2.seq, type = "l")
+
+plot(w12.seq[1:floor(N/10)], type = "l")
+
+#plot(w12.seq, type = "l")
+
+plot(w12.ref[1:floor(N/10)], type = "l")
+```
+
+```{r}
+#directly check the two sublinear expectations (the range) by replications (going through different scenarios) (to check SLLN)
+#check x
+#check x^3
+set.seed(250881732)
+#N <- 1e3
+sd1 <- 1
+sd2 <- 2
+M <- 50
+N1 <- 1e2
+N2 <- 1e2
+par.true <- c(sd1, sd2)
+avg.mat <- replicate(M, {
+#decide the blocking length
+#I may go through backward simulation
+#future has no effect on the past
+w12.seq <- numeric(N1*N2)
+ind.mat <- matrix(seq_len(N1*N2), ncol = N2, byrow = TRUE)
+#w12.ref <- w12.mat <- matrix(NA, ncol = N2, nrow = N1, byrow = TRUE)
+
+re <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], rmaximal.k = rmaximal.extrem)
+#re <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2])
+w1.seq <- re$w.seq
+for (i in seq_along(w1.seq)){
+  #re2 <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], gr.len.mean = 1e2)
+  re2 <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], rmaximal.k = rmaximal.extrem)
+  w2.seq <- re2$w.seq
+  #w2.ref <- sample(w2.seq, size = length(w2.seq), replace = TRUE)
+  w12.mat[i,] <- (w1.seq[i] + w2.seq)/sqrt(2)
+  #w12.ref[i,] <- w1.seq[i] + w2.ref
+}
+
+#w12.seq <- as.numeric(w12.mat) #by column
+w12.seq <- as.numeric(t(w12.mat)) #by row
+#w12.ref <- as.numeric(t(w12.ref))
+y.full <- w12.seq^3
+  avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+  avg.seq 
+})
+
+N <- N1*N2
+ind.ex1 <- 1:5e2
+n.seq <- seq_len(N)[-ind.ex1]
+matplot(n.seq, avg.mat[-ind.ex1, ], type = "l", main = "G-normal-approx: S_n/n")
+abline(h = expt.w12(par.true), col = "brown")
+
+#I also need to compare this with the reference sequence.
+
+#or we can directly compute the theoretical value to plot the boundaries.
+```
+
+```{r}
+#write it into a function 
+```
+
+```{r}
+set.seed(250881732)
+#N <- 1e3
+sd1 <- 1
+sd2 <- 2
+M <- 50
+N1 <- 1e2
+N2 <- 1e2
+par.true <- c(sd1, sd2)
+avg.mat <- replicate(M, {
+#decide the blocking length
+#I may go through backward simulation
+#future has no effect on the past
+w12.seq <- numeric(N1*N2)
+ind.mat <- matrix(seq_len(N1*N2), ncol = N2, byrow = TRUE)
+#w12.ref <- w12.mat <- matrix(NA, ncol = N2, nrow = N1, byrow = TRUE)
+
+#re <- rsemiGnorm(N1, sig.low = par.true[1], sig.up = par.true[2], rmaximal.k = rmaximal.extrem)
+re <- rsemiGnorm(N1, sig.low = par.true[1], sig.up = par.true[2])
+w1.seq <- re$w.seq
+for (i in seq_along(w1.seq)){
+  re2 <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], gr.len.mean = 1e2)
+  #re2 <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], rmaximal.k = rmaximal.extrem)
+  w2.seq <- re2$w.seq
+  #w2.ref <- sample(w2.seq, size = length(w2.seq), replace = TRUE)
+  w12.mat[i,] <- (w1.seq[i] + w2.seq)/sqrt(2)
+  #w12.ref[i,] <- w1.seq[i] + w2.ref
+}
+
+#w12.seq <- as.numeric(w12.mat) #by column
+w12.seq <- as.numeric(t(w12.mat)) #by row
+#w12.ref <- as.numeric(t(w12.ref))
+y.full <- w12.seq^3
+  avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+  avg.seq 
+})
+
+ind.ex1 <- 1:50
+n.seq <- seq_len(N)[-ind.ex1]
+matplot(n.seq, avg.mat[-ind.ex1, ], type = "l", main = "semi-G-normal: S_n/n, x^3")
+abline(h = expt.w12(par.true), col = "brown")
+```
+
+```{r}
+set.seed(250881732)
+#N <- 1e3
+sd1 <- 1
+sd2 <- 2
+M <- 50
+N1 <- 1e2
+N2 <- 1e2
+par.true <- c(sd1, sd2)
+avg.mat <- replicate(M, {
+#decide the blocking length
+#I may go through backward simulation
+#future has no effect on the past
+w12.seq <- numeric(N1*N2)
+ind.mat <- matrix(seq_len(N1*N2), ncol = N2, byrow = TRUE)
+#w12.ref <- w12.mat <- matrix(NA, ncol = N2, nrow = N1, byrow = TRUE)
+
+#re <- rsemiGnorm(N1, sig.low = par.true[1], sig.up = par.true[2], rmaximal.k = rmaximal.extrem)
+re <- rsemiGnorm(N1, sig.low = par.true[1], sig.up = par.true[2])
+w1.seq <- re$w.seq
+for (i in seq_along(w1.seq)){
+  re2 <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], gr.len.mean = 1e2)
+  #re2 <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], rmaximal.k = rmaximal.extrem)
+  w2.seq <- re2$w.seq
+  #w2.ref <- sample(w2.seq, size = length(w2.seq), replace = TRUE)
+  w12.mat[i,] <- (w1.seq[i] + w2.seq)/sqrt(2)
+  #w12.ref[i,] <- w1.seq[i] + w2.ref
+}
+
+#w12.seq <- as.numeric(w12.mat) #by column
+w12.seq <- as.numeric(t(w12.mat)) #by row
+#w12.ref <- as.numeric(t(w12.ref))
+y.full <- w12.seq
+  avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+  avg.seq 
+})
+
+ind.ex1 <- 1:50
+n.seq <- seq_len(N)[-ind.ex1]
+matplot(n.seq, avg.mat[-ind.ex1, ], type = "l", main = "semi-G-normal: S_n/n, x^3", 
+        ylim = 2*sd2*c(-1,1))
+#abline(h = c(-0.5, 0.5), col = "brown")
+
+```
+
+```{r}
+#write into function 
+
+```
+
+
+####Check the sequential independence
+Consider the behaviour of 
+$$
+\hat{E}[XY^2]
+$$
+under different sequential independence relations.
+```{r}
+set.seed(250881732)
+#N <- 1e3
+sd1 <- 1
+sd2 <- 2
+M <- 50
+N1 <- 1e2
+N2 <- 1e2
+par.true <- c(sd1, sd2)
+avg.mat <- replicate(M, {
+#decide the blocking length
+#I may go through backward simulation
+#future has no effect on the past
+w12.seq <- numeric(N1*N2)
+ind.mat <- matrix(seq_len(N1*N2), ncol = N2, byrow = TRUE)
+#w12.ref <- w12.mat <- matrix(NA, ncol = N2, nrow = N1, byrow = TRUE)
+
+re <- rsemiGnorm(N1, sig.low = par.true[1], sig.up = par.true[2], rmaximal.k = rmaximal.extrem)
+#re <- rsemiGnorm(N1, sig.low = par.true[1], sig.up = par.true[2])
+w1.seq <- re$w.seq
+for (i in seq_along(w1.seq)){
+  #re2 <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], gr.len.mean = 1e2)
+  re2 <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], rmaximal.k = rmaximal.extrem)
+  w2.seq <- re2$w.seq
+  #w2.ref <- sample(w2.seq, size = length(w2.seq), replace = TRUE)
+  w12.mat[i,] <- w1.seq[i] * w2.seq^2
+  #w12.ref[i,] <- w1.seq[i] + w2.ref
+}
+
+#w12.seq <- as.numeric(w12.mat) #by column
+w12.seq <- as.numeric(t(w12.mat)) #by row
+#w12.ref <- as.numeric(t(w12.ref))
+y.full <- w12.seq
+  avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+  avg.seq 
+})
+
+ind.ex1 <- 1:1e2
+N <- N1*N2
+n.seq <- seq_len(N)[-ind.ex1]
+matplot(n.seq, avg.mat[-ind.ex1, ], type = "l", main = "S_n/n: XY^2, Y is ind from X")
+abline(h = c(-1,1)*(sd2^2-sd1^2)*sd2/sqrt(pi*2), col = "brown")
+#check the true value
+
+```
+
+```{r}
+#set.seed(250881732)
+#N <- 1e3
+sd1 <- 1
+sd2 <- 2
+M <- 50
+N1 <- 1e2
+N2 <- 1e2
+par.true <- c(sd1, sd2)
+avg.mat <- replicate(M, {
+#decide the blocking length
+#I may go through backward simulation
+#future has no effect on the past
+w12.seq <- numeric(N1*N2)
+ind.mat <- matrix(seq_len(N1*N2), ncol = N2, byrow = TRUE)
+#w12.ref <- w12.mat <- matrix(NA, ncol = N2, nrow = N1, byrow = TRUE)
+
+re <- rsemiGnorm(N1, sig.low = par.true[1], sig.up = par.true[2], rmaximal.k = rmaximal.extrem)
+#re <- rsemiGnorm(N1, sig.low = par.true[1], sig.up = par.true[2])
+w1.seq <- re$w.seq
+for (i in seq_along(w1.seq)){
+  #re2 <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], gr.len.mean = 1e2)
+  re2 <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], rmaximal.k = rmaximal.extrem)
+  w2.seq <- re2$w.seq
+  #w2.ref <- sample(w2.seq, size = length(w2.seq), replace = TRUE)
+  w12.mat[i,] <- w1.seq[i]^2 * w2.seq
+  #w12.ref[i,] <- w1.seq[i] + w2.ref
+}
+
+#w12.seq <- as.numeric(w12.mat) #by column
+w12.seq <- as.numeric(t(w12.mat)) #by row
+#w12.ref <- as.numeric(t(w12.ref))
+y.full <- w12.seq
+  avg.seq <- sapply(seq_along(y.full), function(n) mean(y.full[seq_len(n)]))
+  avg.seq 
+})
+
+ind.ex1 <- 1:1e2
+N <- N1*N2
+n.seq <- seq_len(N)[-ind.ex1]
+matplot(n.seq, avg.mat[-ind.ex1, ], type = "l", main = "S_n/n: XY^2, X is ind from Y", ylim = c(-5, 5))
+abline(h = 0, col = "brown")
+#check the true value
+
+
+#simulate the long sequence
+#then compute the group average
+
+```
+
+####Check based on GARCH
+```{r}
+#check the garch setup 
+library(rugarch)
+#fit the garch model on different part of dataset
+#fit the garch(1,1)
+#start from a simple fitting
+gspec.ru <- ugarchspec(mean.model=list(
+      armaOrder=c(0,0)), distribution="std")
+logreturn.seq.sub <- logreturn.seq
+gfit.ru <- ugarchfit(gspec.ru, logreturn.seq.sub)
+coef(gfit.ru)
+#shape parameter 
+
+#store the estimation results
+garch.est <- function(dat, par.name = "beta1"){
+  gspec.ru <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1)), mean.model=list(
+      armaOrder=c(1,0)), distribution="std")
+  gfit.ru <- ugarchfit(gspec.ru, dat)
+  re <- coef(gfit.ru)
+  re[par.name]
+}
+
+garch.est(logreturn.seq.sub)
+```
+
+
+```{r}
+#extract the points from different time periods
+
+#from the financial events in the history, so far we divide the 30 years into roughly 3 10-year cycle
+#how should we put the finacianl crises into the period
+timeperiods.setup <- function(step, length, start=1989, end=2019){
+  years.point.start <- seq(start, end-length, step)
+  years.point.end <- years.point.start + length -1
+
+periods.seq.std.5.ovlp <- paste0(years.point.start,"/",years.point.end)
+}
+#standard
+periods.seq.std.8.ovlp <- timeperiods.setup(step = 2, length = 8)
+
+periods.seq.std.10.ovlp <- paste0(years.point.start,"/",years.point.end)
+
+#5 years novlp
+years.point.start <- seq(1989, 2009, 5)
+years.point.end <- years.point.start + 5 -1
+
+periods.seq.std.5.ovlp <- paste0(years.point.start,"/",years.point.end)
+
+#6 years ovlp
+#years.point.start <- seq(1989, 2019-6, 3)
+#years.point.end <- years.point.start + 6 -1
+
+periods.seq.std.6.ovlp <- timeperiods.setup(step = 3, length = 6)
+
+#history
+period.seq.hty <- c("1989/1998", 
+                    "1999/2008",
+                    "2009/2018")
+#test the variance uncertainty before and after the important financial events
+#pinpoint those financial events (especially crisis)
+
+#"Bussiness Cycle", how should we prepare for the next finacial crisis
+#then test the uncertainty before the events 
+
+#detect whether we can really predict the future
+```
+
+```{r}
+periods.seq <- periods.seq.std.10.ovlp
+#North America market
+plot(logReturn.gspc, ylim = c(-0.10, 0.10))
+
+for (period in periods.seq){
+  print(plot(logReturn.gspc[period], ylim = c(-0.10, 0.10)))
+}
+
+#plot(logReturn.gspc["1990/1998"], ylim = c(-0.10, 0.10))
+#plot(logReturn.gspc["1998/2007"], ylim = c(-0.10, 0.10))
+#plot(logReturn.gspc["2007/2018"], ylim = c(-0.10, 0.10))
+```
+
+```{r}
+#Chinese market
+plot(logReturn.hsi, ylim = c(-0.18, 0.18))
+#fist we can see that Chinese market has much larger spread-out in the log return
+for (period in periods.seq){
+  print(plot(logReturn.hsi[period], ylim = c(-0.18, 0.18)))
+}
+
+plot(logReturn.gspc["2009/2018"], ylim = c(-0.08, 0.08))
+plot(logReturn.hsi["2009/2018"], ylim = c(-0.08, 0.08))
+#plot(logReturn.hsi["1990/1998"], ylim = c(-0.18, 0.18))
+#plot(logReturn.hsi["1998/2007"], ylim = c(-0.18, 0.18))
+#plot(logReturn.hsi["2007/2018"], ylim = c(-0.18, 0.18))
+```
+
+###test of uncertainty
+```{r}
+#test the mean uncertainty
+varphi1 <- function(x) x*1e2
+set.seed(1234)
+#plotname = paste0("TwoPCDensityPlotTime", name)
+#automatic save the plot
+#jpeg(paste0(plotname,".jpg"), width = 870, height = 668, quality = 200)
+testUncertainty(as.numeric(logReturn.gspc), varphi = varphi1, test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE, n.check = 150)
+#no mean uncertainty
+testUncertainty(as.numeric(logReturn.hsi), varphi = varphi1, test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE, n.check = 150)
+#no mean uncertainty 
+```
+
+We scale the dataset only to enhance the convenience of computation and readability, which is especially true for the test of variance uncertainty since in the real dataset the min of group variance is usually very tiny (close to the lower bound zero). By scaling the whole dataset, we can better visualize and detect the difference between the min of group variance and zero. 
+
+```{r}
+#test variance uncertainty
+#we need to scale the dataset for computational convenience
+#dealing with rounding error
+varphi2 <- function(x) (x*1e2)^2
+set.seed(1234)
+op <- par(no.readonly = TRUE)
+par(mfrow=c(2,2))
+testUncertainty(as.numeric(logReturn.gspc), varphi = varphi2, test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE, n.check = 300)
+par(op)
+
+testUncertainty(as.numeric(logReturn.hsi), varphi = varphi2, test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE, n.check = 300)
+#choose the n.check for the most of the cases
+#depending on the window or group size we choose, we may see different results
+#the low volatility part does not have significant uncertainty
+```
+
+
+```{r}
+#test the variance uncertainty
+periods.seq <- periods.seq.std.10.ovlp
+n.check1 <- 150
+
+pvalue.mat.us <- matrix(NA, nrow = length(periods.seq), ncol=2)
+for (i in seq_along(periods.seq)){
+  period <- periods.seq[i]
+  print(pvalue.mat.us[i,] <- testUncertainty(as.numeric(logReturn.gspc[period]), varphi = varphi2, test.plot = FALSE, test.new.re = TRUE, test.new.plot = TRUE, n.check = n.check1))
+}
+
+pvalue.seq.us <- apply(pvalue.mat.us, 1, min)
+#apply min to combine two pvalue together, as long as the min is small (meaning one of the pvalue is small), we will reject the null hypothesis, saying that it has varphi-uncertainty. 
+#zero.com <- .Machine$double.xmin
+pvalue.seq.us[which(pvalue.mat.us==0)] <- 1e-16
+us.pv.dat <- data.frame(TimePeriod = periods.seq, 
+                        TimePeriodIndex = seq_along(periods.seq),
+                        log.upper.pvalue = log(pvalue.seq.us), 
+                        degree.uncertainty = -log(pvalue.seq.us), 
+                        region = "North America")
+us.pv.dat
+```
+
+```{r}
+#HSI
+pvalue.mat.cn <- matrix(NA, nrow = length(periods.seq), ncol=2)
+for (i in seq_along(periods.seq)){
+  period <- periods.seq[i]
+  pvalue.mat.cn[i,] <- testUncertainty(as.numeric(logReturn.hsi[period]), varphi = varphi2, test.plot = FALSE, test.new.re = TRUE, test.new.plot = TRUE, n.check = n.check1)
+}
+
+pvalue.seq.cn <- apply(pvalue.mat.cn, 1, min)
+#apply min to combine two pvalue together, as long as the min is small (meaning one of the pvalue is small), we will reject the null hypothesis, saying that it has varphi-uncertainty. 
+cn.pv.dat <- data.frame(TimePeriod = periods.seq, 
+                        TimePeriodIndex = seq_along(periods.seq),
+                        log.upper.pvalue = log(pvalue.seq.cn), 
+                        degree.uncertainty = -log(pvalue.seq.cn), 
+                        region = "China")
+cn.pv.dat
+```
+
+```{r}
+pv.dat <- rbind(us.pv.dat, cn.pv.dat)
+#degree of uncertainty = -log(upper.pvalue)
+ggplot(data = pv.dat, aes(x=TimePeriod, y=degree.uncertainty, fill=region)) + geom_bar(position = "dodge", stat = "identity")
+
+#ggplot(data = pv.dat, aes(x=TimePeriodIndex, y=degree.uncertainty, colour=region)) + geom_line(aes(lty=region)) + scale_x_continuous(breaks = seq_along(periods.seq), labels = periods.seq)
+ggplot(data = pv.dat, aes(x=TimePeriodIndex, y=degree.uncertainty, colour=region)) + geom_point(aes(shape=region, size=0.5)) + geom_line() + scale_x_continuous(breaks = seq_along(periods.seq), labels = periods.seq)
+#+ theme(axis.text.x = element_text(angle=30, hjust=1, vjust = 1))
+#how to measure the uncertainty 
+#uncertainty-VaR = min(V(max.mean > b), V(min.mean < a)) 
+
+#test the uncertainty, at some pin-point, to illustrate that we need to have precaution to face the potential uncertainty. 
+```
+
+
+(how to choose the period is worth discussion)
+(to be discussed with Prof. Peng)
+
+some vague interpretation
+in general, the Knightian uncertainty is increasing in the two markets, 
+uncertainty will increase around the time of finacial crisis
+US is affected more by the finacial crisis, (meanwhile we can roughly see the ten-period cycle of US cycle)
+
+CN, due to the macro control from gov, is less affected by the crisis. 
+
+1989/1998: us more mature than cn, us<cn
+1994/2003: crisis in Europe, us>cn, (china has more control on the market)
+1999/2008: before the crisis, similar 
+2004/2013: 2008 financial crisis, uncertainty: us>cn (china has more control on the market)
+2009/2018: after the crisis, cn>us 
+
+change the time periods
+
+One question I am thinking is, if we step back to the period 1999-2007 (before the crisis), can we do any prediction on the future based on the current volatility model? One possible answer is no because of the qualilative reason: the incompleteness of market and the irrational behaviors by humans in general sense. We are going to partially give a quantatitive reason for this. 
+
+```{r}
+train.int <- "1989/2007"
+test.int <- "2008/2010"
+plot(logReturn.gspc[train.int], ylim = c(-0.10, 0.10))
+#increase of uncertainty before the crisis
+plot(logReturn.gspc[test.int], ylim = c(-0.10, 0.10))
+```
+
+```{r}
+train.seq <- logReturn.gspc[train.int]
+test.seq <- logReturn.gspc[test.int]
+full.seq <- c(train.seq, test.seq)
+train.seq.gr <- get.meanseq.novlp(varphi2(train.seq), n.guess = 20)
+test.seq.gr <- get.meanseq.novlp(varphi2(test.seq), n.guess = 20)
+plot(train.seq.gr, type = "l")
+plot(test.seq.gr, type = "l")
+
+full.seq.gr <- get.meanseq.novlp(varphi2(full.seq), n.guess = 20)
+plot(full.seq.gr, type = "l", ylab = "group mean")
+abline(v=length(train.seq.gr), col=2, lty=2, lwd=1.2)
+```
+
+```{r}
+#under low variance uncertainty, the prediction becomes easier
+testUncertainty(as.numeric(logReturn.gspc["1989/1998"]),varphi = varphi2, n.check = n.check1)
+#under high varaince uncertainty, the prediction becomes harder
+testUncertainty(as.numeric(logReturn.gspc["1999/2007"]),varphi = varphi2, n.check = n.check1)
+```
+
+
+```{r}
+#test the variance uncertainty
+periods.seq <- timeperiods.setup(step = 5, length = 5)
+n.check1 <- 110
+
+varphi2 <- function(x) StrechSmalls(StrechSmalls((x*1e2)^2))
+
+pvalue.mat.us <- matrix(NA, nrow = length(periods.seq), ncol=2)
+for (i in seq_along(periods.seq)){
+  period <- periods.seq[i]
+  print(pvalue.mat.us[i,] <- testUncertainty(as.numeric(logReturn.gspc[period]), varphi = varphi2, test.plot = FALSE, test.new.re = TRUE, test.new.plot = TRUE, n.check = n.check1))
+}
+
+pvalue.seq.us <- apply(pvalue.mat.us, 1, min)
+#apply min to combine two pvalue together, as long as the min is small (meaning one of the pvalue is small), we will reject the null hypothesis, saying that it has varphi-uncertainty. 
+#zero.com <- .Machine$double.xmin
+pvalue.seq.us[which(is.infinite(log(pvalue.seq.us)))] <- 1e-30
+us.pv.dat <- data.frame(TimePeriod = periods.seq, 
+                        TimePeriodIndex = seq_along(periods.seq),
+                        log.upper.pvalue = log(pvalue.seq.us), 
+                        degree.uncertainty = -log(pvalue.seq.us), 
+                        region = "North America")
+us.pv.dat
+```
+
+```{r}
+#HSI
+pvalue.mat.cn <- matrix(NA, nrow = length(periods.seq), ncol=2)
+for (i in seq_along(periods.seq)){
+  period <- periods.seq[i]
+  pvalue.mat.cn[i,] <- testUncertainty(as.numeric(logReturn.hsi[period]), varphi = varphi2, test.plot = FALSE, test.new.re = TRUE, test.new.plot = TRUE, n.check = n.check1)
+}
+
+pvalue.seq.cn <- apply(pvalue.mat.cn, 1, min)
+#apply min to combine two pvalue together, as long as the min is small (meaning one of the pvalue is small), we will reject the null hypothesis, saying that it has varphi-uncertainty.
+pvalue.seq.cn[which(is.infinite(log(pvalue.seq.cn)))] <- 1e-30
+cn.pv.dat <- data.frame(TimePeriod = periods.seq, 
+                        TimePeriodIndex = seq_along(periods.seq),
+                        log.upper.pvalue = log(pvalue.seq.cn), 
+                        degree.uncertainty = -log(pvalue.seq.cn), 
+                        region = "China")
+cn.pv.dat
+```
+
+```{r}
+pv.dat <- rbind(us.pv.dat, cn.pv.dat)
+#degree of uncertainty = -log(upper.pvalue)
+ggplot(data = pv.dat, aes(x=TimePeriod, y=degree.uncertainty, fill=region)) + geom_bar(position = "dodge", stat = "identity")
+
+#ggplot(data = pv.dat, aes(x=TimePeriodIndex, y=degree.uncertainty, colour=region)) + geom_line(aes(lty=region)) + scale_x_continuous(breaks = seq_along(periods.seq), labels = periods.seq)
+ggplot(data = pv.dat, aes(x=TimePeriodIndex, y=degree.uncertainty, colour=region)) + geom_point(aes(shape=region, size=0.5)) + geom_line() + scale_x_continuous(breaks = seq_along(periods.seq), labels = periods.seq)
+#+ theme(axis.text.x = element_text(angle=30, hjust=1, vjust = 1))
+#how to measure the uncertainty 
+#uncertainty-VaR = min(V(max.mean > b), V(min.mean < a)) 
+```
+
+```{r}
+###Temp 
+#testUncertainty(logReturn.gspc, varphi = varphi2, test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE)
+#sampling from xts might be different from general one
+testUncertainty(logReturn.gspc.num, varphi = varphi2, test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE, n.check = 150)
+#c(p(maxmean>b), p(minmean<a)) = c(3.19744e-14, 0.00347163)
+
+testUncertainty(as.numeric(logReturn.gspc["1990/1998"]), varphi = varphi2, test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE, n.check = 150)
+#c(p(maxmean>b), p(minmean<a)) = c(1.1562e-06, 0.0019223)
+
+testUncertainty(as.numeric(logReturn.gspc["1998/2007"]), varphi = varphi2, test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE, n.check = 150)
+#c(p(maxmean>b), p(minmean<a)) = c(1.414e-07, 0.000220867)
+#from the testing results
+#higher degree of uncertainty: 1998~2007 > 1990~1998
+
+testUncertainty(as.numeric(logReturn.gspc["2007/2018"]), varphi = varphi2, test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE, n.check = 150)
+#(p(maxmean>b), p(minmean<a)) = c(0, 0.00196245)
+
+zero.com <- 2.225074e-308
+pvalue.mat.us <- rbind(c(1.1562e-06, 0.0019223), c(1.414e-07, 0.000220867), c(zero.com, 0.00196245))
+#fill zero to be 2.225074e-308 (smallest floating point)
+#.Machine$double.xmin
+pvalue.seq.us <- apply(pvalue.mat.us, 1, min)
+#apply min to combine two pvalue together, as long as the min is small (meaning one of the pvalue is small), we will reject the null hypothesis, saying that it has varphi-uncertainty. 
+us.pv.dat <- data.frame(TimePeriod = c("1990-1998","1998-2007","2007-2018"), 
+                        log.upper.pvalue = log(pvalue.seq.us), 
+                        degree.uncertainty = -log(pvalue.seq.us))
+#taking log for the convenience of visualization
+```
+
+
+```{r}
+###Temp
+#HSI
+testUncertainty(logReturn.hsi.num, varphi = varphi2, test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE)
+#c(p(maxmean>b), p(minmean<a)) = c(0, 7.82796e-05)
+
+testUncertainty(as.numeric(logReturn.hsi["1990/1998"]), varphi = varphi2, test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE, n.check = 150)
+#c(p(maxmean>b), p(minmean<a)) = c(2.57149e-07, 0.00396857)
+
+testUncertainty(as.numeric(logReturn.hsi["1998/2007"]), varphi = varphi2, test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE, n.check = 150)
+#c(p(maxmean>b), p(minmean<a)) = c(7.1155e-08, 2.84693e-07)
+#from the testing results
+#higher degree of uncertainty: 1998~2007 > 1990~1998
+#so far, it vaguely direct us to the result:
+#in the same period, the degree of uncertainty, Chinese market > American market
+
+testUncertainty(as.numeric(logReturn.hsi["2007/2018"]), varphi = varphi2, test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE, n.check = 150)
+#c(p(maxmean>b), p(minmean<a)) = c(1.14964e-12, 0.000816727)
+#the degree of uncertainty: Chinese market < American market
+```
+
+
+```{r}
+#logreturn.seq <- logReturn.gspc.num * 10
+#times 10 only to enlarge the small value for better computation (reduce truncation error) 
+#logreturn.seq <- as.numeric(logReturn.msft)*10
+#logreturn.seq <- sp500LRdf$logret * 10
+
+#check mean uncertainty (mean certainty, zero)
+testUncertainty(logreturn.seq, varphi = function(x) x)
+##mean is certain
+
+#check variance uncertainty
+#show the movie first 
+#testUncertainty(logreturn.seq, varphi = function(x) x^2, n.max.prop = 1/10, n.min = 50, hist.bin = 40, mov.plot = TRUE, test.plot = FALSE)
+#aggregate the info from the movie to get the test plot
+
+testUncertainty(logreturn.seq, varphi = function(x) x^2, n.max.prop = 1/10, n.min = 50, hist.bin = 40, test.new.re = FALSE)
+
+testUncertainty(logreturn.seq, varphi = function(x) StrechSmalls(x^2), n.max.prop = 1/10, n.min = 50, hist.bin = 40)
+
+testUncertainty(logreturn.seq, varphi = function(x) StrechSmalls(StrechSmalls(x^2)), n.max.prop = 1/10, n.min = 50, hist.bin = 40)
+##variance is uncertain
+
+
+#check the skewness uncertainty
+testUncertainty(logreturn.seq, n.max.prop = 1/10, n.min = 50, varphi = function(x) x^3)
+##skewness is certain (zero)
+
+#check the kurtosis uncertainty
+testUncertainty(logreturn.seq, varphi = function(x) x^4)
+##hard to see
+#we can use this transformation log(1+x) to stretch small values to be larger and alleviate the explosion of large values
+#StrechSmalls <- log1p
+testUncertainty(logreturn.seq, varphi = function(x) StrechSmalls(x^4), n.max.prop = 1/10)
+#we can see that it has kurtosis uncertainty
+testUncertainty(logreturn.seq, varphi = function(x) StrechSmalls(StrechSmalls(StrechSmalls(StrechSmalls(x^4)))), hist.bin = 40, n.max.prop = 1/10)
+#we can also apply this transformation many times, which will stretch more but the one-time stretch is already good enough for us. 
+```
+
+The reason the transformation will work is that 
+$$
+\ln (1+x) = x - x^2 + O(x^3).
+$$
+
+The remainder is reasonablely small as long as $|x|<1$. 
+We will have $\ln (1+x)\approx x$ when $x$ is small ($|x|\ll 1$) and $x>\ln(1+x)$ when $|x|$ is close to $1$. 
+
+For higher moments, the error of estimation (or the variance of the estimators) will come into play, which requires larger data size if we want to better see the moments-uncertainty. 
+
+Goal (explicitly): Capture the range of the uncertain volatility (the best and worst case); 
+
+```{r}
+#change w.seq to a real log return data
+dat.seq <- logReturn.gspc.num
+varphi1 <- function(x) StrechSmalls(StrechSmalls((x*1e2)^2))
+dat2.seq <- varphi1(dat.seq)
+N <- length(dat.seq)
+```
+
+```{r}
+mean.seq <- get.meanseq.novlp(dat2.seq, n.guess = 1e2)
+plot(mean.seq, type = "l")
+acf(mean.seq) #create a dependent structure
+```
+
+If using the rmaximal.extreme, we will see a very significant regime changing pattern in the volatility. However, if applying the general rmaximal, we may not be able to directly see this pattern. 
+
+```{r}
+#testUncertainty(logReturn.gspc.num, varphi = function(x) (x*1e2)^2, test.plot = TRUE, test.iid.re = FALSE, test.new.re = TRUE, test.new.plot = TRUE)
+#use StrechSmalls mainly to deal with the tiny min of group mean
+testUncertainty(logReturn.gspc.num, varphi = function(x) StrechSmalls(StrechSmalls((x*1e2)^2)), test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE)
+#to compare with
+#testUncertainty(rnorm(1e4, sd=0.01), varphi = function(x) x^2, test.plot = TRUE, test.new.re = TRUE, test.new.plot = TRUE)
+```
+
+```{r}
+#illustrate the uncertainty by considering different time periods 
+
+```
+
+```{r}
+#apply to the SP500 log return dataset in China
+
+```
+
+
+#Ellsberg Paradoux: A complete practice 
+
+This is a pseudo simulation of a semi-$G$-version of Binomial distribution with distribution uncertainty characterized by the following set of probability measures: 
+$$
+\{P_{B(n,p)}, p\in [\underline p, \overline p ]\}.
+$$
+
+We randomly draw balls with replacement from an urn (with white and black balls). The gamble rule is very simple: win $1$ dollar if black and lose $1$ dollar if white. Let $X_i:\Omega\rightarrow\{-1,1\},i=1,2,\dotsc,N$ denote the income we get each time. The proportion of black balls $p$ may change from time to time. At early stage, we usually have no idea about how $p$ is varying. However, we can observe the color of balls or equivalently, the $X_i$'s. These $N$ sample points can be viewed as the training dataset we have. 
+Let $S_n$ be the total income we get after $n$ draws, namely, the cumulative summation of $X_i,i=1,2,\dotsc,n$. 
+
+Suppose we will be provided with new set of $M$ draws in the future and the total income will be only settled after $M$ draws, 
+we want to prepare a security fund for us to almost secure/avoid us from bankruptcy even when the behavior of $p$ is extremely unstable (to give a real example reality, this is when the market is very unstable).  
+(This example can be modified to consider any $n\leq M$ so that we should work on a dynamic situation)
+
+In other words, the question is at this early stage (with lack of background information),
+how should we make inference on the stochastic behavior of $S_M$ or $S_M/M$ to help us make strategies? 
+
+In a more professional sense, how should we view the possible future scenarios regarding $S_M/M$ so that we can have a security fund to avoid us from bankruptcy. This exactly becomes a question a consulting company want to consider for their clients. 
+
+
+```{r}
+#simulation side
+N <- 1e4
+par.true <- c(0.4,0.6)
+#modify the par.true so that the variance seems different
+#par.true <- c(0.5,0.8)
+set.seed(1234)
+#p.seq <- rmaximal.extrem(N, min = par.true[1], max = par.true[2], alpha = 0.3, beta = 0.3)
+#plot(p.seq, type = "l")
+#with more values 
+#varphi1 <- function(x) x
+#x.seq.train <- rbinom.maximal(N, size=50, p.par = par.true, 
+#                              varphi = varphi1)
+
+#binary range
+varphi1 <- function(x) 2*x-1
+re.train <- rbinom.maximal(N, size=1, p.par = par.true, 
+                         varphi = varphi1)
+x.seq.train <- re.train$x.seq
+p.seq.train <- re.train$p.seq
+#more continuous version
+#size1 <- 1e2
+#varphi1 <- function(x) 2*(x/size1)-1
+#x.seq.train <- rbinom.maximal(N, size=size1, p.par = par.true, 
+#                             varphi = varphi1)
+
+#plot(cumsum(x.seq.train), type = "l")
+
+#par.true1 <- varphi1(par.true*size1)
+par.true1 <- varphi1(par.true)
+#n.seq.train <- seq_along(x.seq.train)
+#S.seq.train <- cumsum(x.seq.train)
+
+#plot(n.seq.train, S.seq.train, type = "l")
+#plot(n.seq.train, S.seq.train/n.seq.train, type = "l")
+#find an increasing pattern
+
+```
+
+This an example of dataset which should be as one with drift uncertainty or mean uncertainty.
+
+In general, what a standard statistical or data analyzing procedure will be?
+What will our current statitstical knowledge or data science suggest on how should we deal with this problem? 
+
+```{r}
+#numerically compute i
+```
+
+
+```{r}
+#some initial analysis
+table(x.seq.train)
+#plot(x.seq.train, type = "l") #drift uncertainty 
+#detect the change point 
+
+n.seq.train <- seq_along(x.seq.train)
+S.seq.train <- cumsum(x.seq.train)
+
+x.dat.train <- data.frame(DrawIndex = n.seq.train, EachIncome = x.seq.train, TotalIncome = S.seq.train, AveIncome = S.seq.train/n.seq.train)
+
+#direct plot of the dataset
+#fit a loess curve 
+ggplot(x.dat.train, aes(x=DrawIndex, y=EachIncome))+geom_point(size=1, alpha=0.4)+
+  stat_smooth(method="loess", colour="blue", size=1.5)+
+  xlab("DrawIndex")+
+  ylab("Probability of Win")+
+  theme_bw()
+
+N1 <- 2e2
+ind.sub <- seq_len(N1)
+ggplot(x.dat.train[ind.sub,], aes(x=DrawIndex, y=EachIncome))+geom_point(size=2, alpha=0.4)+
+  stat_smooth(method="loess", colour="blue", size=1.5)+
+  xlab("DrawIndex")+
+  ylab("Probability of Win")+ ggtitle(paste("Income each time from Draw", min(ind.sub), "to", max(ind.sub))) +
+  theme_bw()
+
+ind.sub <- N1+seq_len(N1)
+ggplot(x.dat.train[ind.sub,], aes(x=DrawIndex, y=EachIncome))+geom_point(size=2, alpha=0.4)+
+  stat_smooth(method="loess", colour="blue", size=1.5)+
+  xlab("DrawIndex")+
+  ylab("Probability of Win")+ ggtitle(paste("Income each time from Draw", min(ind.sub), "to", max(ind.sub))) +
+  theme_bw()
+
+#plot(n.seq.train, S.seq.train, type = "l")
+#plot(n.seq.train, S.seq.train/n.seq.train, type = "l")
+
+```
+
+```{r}
+gr.guess <- 20
+x.seq.train.gr <- get.meanseq.novlp(x.seq.train, n.guess = gr.guess)
+plot(x.seq.train.gr, type = "l", xlab = "group index", main = paste0("group size =", gr.guess))
+abline(h=0,col=2,lty=2, lwd=1.5)
+#we may see some drift uncertainty from here 
+#then do the change point detection
+#with more values in the range, bootstrappping will be more applicable here
+#Alternatively, we may use the bootstrap with blocking 
+
+#we can also check the acf for the grouped dataset
+#qplot(seq_along(x.seq.train.gr)*gr.guess, x.seq.train.gr)
+ggplot(NULL,aes(x=seq_along(x.seq.train.gr)*gr.guess, y=x.seq.train.gr)) + geom_line() + ggtitle(paste("Group Income with group size =", gr.guess)) + geom_hline(yintercept = 0) 
+#add colour
+
+gr.guess <- 50
+x.seq.train.gr <- get.meanseq.novlp(x.seq.train, n.guess = gr.guess)
+plot(x.seq.train.gr, type = "l", xlab = "group index", main = paste0("group size =", gr.guess))
+abline(h=0,col=2,lty=2, lwd=1.5)
+#lines plot in ggplot2
+#it will give us some insights that we may use a time series model to describe the group data
+
+#ggplot(x.dat.train, aes(x=DrawIndex, y=TotalIncome)) + geom_line() +ggtitle("Total income after each draw")
+
+status.seq <- character(length(x.seq.train.gr))
+status.seq[x.seq.train.gr>=0] <- "Profit"
+status.seq[x.seq.train.gr<0] <- "Loss"
+#status.seq <- "Win"*(x.seq.train.gr>=0) 
+x.dat.train.gr <- data.frame(DrawIndex = seq_along(x.seq.train.gr)*gr.guess, GroupIncome=x.seq.train.gr, Status = status.seq)
+
+ggplot(x.dat.train.gr, aes(x=DrawIndex, y=GroupIncome, fill=Status)) + geom_bar(stat="identity", position = "identity", colour = "black", size = 0.12) + scale_fill_manual(values = c("#CCEEFF", "#FFDDDD")) + ggtitle(paste("GroupIncome with group size =", gr.guess))
+#change the y.lim to .5*c(-1,1) if needed
+hist(x.dat.train.gr$GroupIncome)
+```
+
+```{r}
+ggplot(x.dat.train, aes(x=DrawIndex, y=TotalIncome)) + geom_line() +ggtitle("Total income after each draw")
+#use it as a visualization of the current dataset
+```
+
+From the plot of the total income after each draw, we can see that  the total income has a potential increasing dyanamic in this realization. 
+
+```{r}
+ind.sub <- which(x.dat.train$DrawIndex>5e2)
+ggplot(x.dat.train[ind.sub,], aes(x=DrawIndex, y=AveIncome)) + geom_line() + ggtitle("Average income after each draw")
+#check the limsup and liminf
+```
+
+
+
+##What is not recommended
+###Assume iid F
+Since at this early stage, we are lack of background informatoin on the underlying structure of the dataset, 
+it is dangerous to apply some probablistic models by making some assumptions before doing some investigation to validate them. 
+
+```{r}
+M <- 1e3
+#try overlapping block 
+#better capture the covariance part
+#bootstrap 
+mean.boot.block <- function(dat, size = M, block.len = 20, rep.times=1e3, ovlp.ind=TRUE, step=1){
+  if(ovlp.ind){
+    N <- length(dat)
+    b <- block.len
+    num.block <- floor((N-b)/step)
+    ind.mat1 <- matrix(rep(1:b, num.block+1), ncol = b, byrow = TRUE)
+    ind.mat2 <- matrix(rep((0:num.block)*step, b), ncol = b, byrow = FALSE)
+    ind.mat <- ind.mat1 + ind.mat2
+    ####
+    dat.mat <- matrix(NA, nrow = nrow(ind.mat), ncol = b)
+    row.ind.seq <- seq_len(nrow(ind.mat))
+    for (i in row.ind.seq){
+      dat.mat[i,] <- dat[ind.mat[i,]]
+    }
+    replicate(rep.times,{
+    row.ind.boot <- sample(row.ind.seq, size = round(M/block.len), replace = TRUE)
+    #dat.boot <- as.vector(dat.mat.ind)
+    mean(dat.mat[row.ind.boot,])
+  })
+  } else {
+    num.block <- floor(length(dat)/block.len)
+  dat.sub <- dat[seq_len(num.block*block.len)]
+  dat.mat <- matrix(dat.sub, ncol = block.len, byrow = TRUE)
+  row.ind.seq <- seq_len(nrow(dat.mat))
+  replicate(rep.times,{
+    row.ind.boot <- sample(row.ind.seq, size = round(M/block.len), replace = TRUE)
+    #dat.boot <- as.vector(dat.mat.ind)
+    mean(dat.mat[row.ind.boot,])
+  })
+  #return(c(1,2,3))
+  }
+}
+```
+
+```{r}
+#assume iid F
+#parametric bootstrap 
+
+#non-parametric bootstrap 
+#est F by empirical distribution
+mean.obs <- mean(x.seq.train)
+stat.boot <- replicate(2e3, {
+  x.seq.boot <- sample(x.seq.train, size = N, replace = TRUE)
+  mean.boot <- mean(x.seq.boot)
+  sd.boot <- sd(x.seq.boot)
+  sqrt(N)*(mean.boot - mean.obs)/sd.boot
+})
+hist(stat.boot)
+
+qqnorm(stat.boot)
+qqline(stat.boot, col=2) #it looks close to normal 
+
+quant.boot <- quantile(stat.boot, probs = c(.025, .975))
+ME <- sd(x.seq.train)/sqrt(N)
+confint.boot <- mean.boot + ME*quant.boot
+confint.boot
+#bootstrap with blocking 
+```
+
+
+```{r}
+mean.boot.seq.bl <- mean.boot.block(x.seq.train, block.len = 20, ovlp.ind = TRUE)
+hist(mean.boot.seq.bl/M)
+mean.boot.seq.bl <- mean.boot.block(x.seq.train, block.len = 20, ovlp.ind = FALSE)
+hist(mean.boot.seq.bl/M)
+
+mean.boot.seq <- replicate(1e3,{
+  x.seq.boot <- sample(x.seq.train, size = M, replace = TRUE)
+  mean(x.seq.boot)
+})
+
+#hist(mean.boot.seq)
+hist(mean.boot.seq*M, main = paste0("Replicated S_",M,": the est sampling distn"))
+```
+
+###Bayes Method
+```{r}
+#assume a uniform prior 
+#a beta prior 
+#check my notes 
+#beta(1,1)
+#uniform
+alpha <- 1; beta <- 1
+den.pri <- function(x) dbeta(x, alpha, beta)
+x.plot <- seq(0,1,.01)
+curve(den.pri, from = 0, to = 1)
+x.sum <- sum(x.seq.train)
+den.post <- function(x) dbeta(x,x.sum + alpha, N - x.sum + beta)
+curve(den.post, from = 0, to = 0.01)
+#95% credible interval
+cred.int <- qbeta(c(.025, .975), x.sum + alpha, N - x.sum + beta)
+cred.int
+
+#beta (not uniform)
+alpha <- 1; beta <- 2
+den.pri <- function(x) dbeta(x, alpha, beta)
+x.plot <- seq(0,1,.01)
+curve(den.pri, from = 0, to = 1)
+x.sum <- sum(x.seq.train)
+den.post <- function(x) dbeta(x,x.sum + alpha, N - x.sum + beta)
+curve(den.post, from = 0, to = 0.01)
+#95% credible interval
+cred.int <- qbeta(c(.025, .975), x.sum + alpha, N - x.sum + beta)
+cred.int
+#the posteriors will converge to one distribution when N is large enough
+```
+
+```{r}
+#show the interval
+```
+
+
+###Mixture Model
+```{r}
+#using EM algorithm 
+#Mixture of the Binomial distribution
+```
+
+####HMM
+
+```{r}
+####try this
+library(depmixS4)
+#library(HiddenMarkov)
+#HMM
+#without blocking design 
+
+y.seq.train.org <- (x.seq.train+1)/2
+gr.len <- 20
+y.seq.train <- get.meanseq.novlp(y.seq.train.org, n.guess = gr.len)
+#y.seq.train <- y.seq.train1/gr.len
+hmm <- depmix(y.seq.train ~ 1, family = multinomial(), nstates = 3, data=data.frame(y.seq.train=y.seq.train))
+#hmm
+hmmfit <- fit(hmm, verbose = TRUE)
+#with blocking design
+#hmmfit@transition
+summary(hmmfit)
+#hmmfit@transition
+
+#parameter changing
+#simulate from the hmm 
+```
+
+```{r}
+#simulate from depmix object
+x.seq.hmm <- simulate(hmm)
+```
+
+
+```{r}
+mat.vec <- c(hmmfit@transition[[1]]@parameters$coefficients, 
+  hmmfit@transition[[2]]@parameters$coefficients,
+  hmmfit@transition[[3]]@parameters$coefficients)
+trans.mat <- matrix(mat.vec, ncol = 3,byrow = TRUE)
+#apply(trans.mat, 1, sum)
+N <- 5e3
+p.seq <- sim.hmm(N, tpm = trans.mat, Rho = Rho.mat, yval = yval.seq)
+#plot(sig.seq, type = "l")
+#plot new S_M/M 
+```
+
+###Dependent Model
+Time series
+
+```{r}
+#Dependent model 
+#highly rely on the information we have on the underlying structure
+#time series
+#time series decomposition 
+acf(x.seq.train)
+
+##investigate the tests of stationarity 
+
+##a few may work 
+##may rely on distributional assumptions
+
+##usually tell the center vs tails 
+##but here we actually have multiple centers
+```
+
+##The true underlying changing parameter
+```{r}
+plot(p.seq.train, type = "l")
+#with blocking design
+#looks like regime switching 
+#we can see whether HMM will work or not in this case
+#the parameter are generated in a blocking sense
+#all the points are independently generated given the parameter
+#the information does not really cummulate as time goes, the future is still uncertainty 
+#this is a simplified version of the uncertainty in real-world data analysis 
+```
+
+##The true possible future scenarios
+
+Let us see the true future scenarios (provided by the data generator)
+```{r}
+#future replications
+#from the side of data generators
+#the outcomes are all generated independently, so we can bind the new replications as the future outcomes.
+rep.time <- 2e2
+set.seed(12)
+#M <- 5e2
+#check the rbinom.maximal function
+x.mat.test <- replicate(rep.time, {
+  re <- rbinom.maximal(M, p.par = par.true, varphi = function(x) 2*x-1)
+  re$x.seq
+  })
+
+x.mat.train <- matrix(rep(x.seq.train, rep.time), ncol = rep.time, byrow = FALSE)
+x.mat.full <- rbind(x.mat.train, x.mat.test)
+
+colnames(x.mat.test) <- paste("RepPath", seq_len(rep.time))
+#S.mat.test <- apply(x.mat.test,2,cumsum)
+S.mat.full <- apply(x.mat.full,2,cumsum)
+
+DrawIndex <- seq_len(nrow(S.mat.full))
+
+x.dat.full <- as.data.frame(cbind(DrawIndex, x.mat.full))
+S.dat.full <- as.data.frame(cbind(DrawIndex, S.mat.full))
+
+library(reshape2)
+#reshape the data so that I can do the matplot in ggplot
+ind.full <- DrawIndex
+sub.ind <- ind.full[-seq_len(0.99*N)]
+S.dat.full.plot <- melt(S.dat.full[sub.ind,], id.vars = "DrawIndex")
+
+ggplot(S.dat.full.plot, aes(x=DrawIndex, y=value, group=variable, colour=variable)) + geom_line(aes(lty=variable)) + theme(legend.position="none") + ggtitle(paste(rep.time,"replicated paths of S_n vs n")) + xlab("DrawIndex") + ylab("TotalIncome") + geom_vline(xintercept = N, col = "blue", lty=2)
+```
+
+One thing we may try is to look at the stock price before the 2008 crisis (or the SP500 data of Chinese market), and do the future scenario analysis on it. 
+(uncertainty vs certainty)
+
+Although we do not often have this kind of extreme black-box situation in reality, this artificial example is only aimed at alarming the data scientists to have some precautoin on the potential uncertainty. Otherwise, it is quite dangerous to make some classical unverified assumptions. 
+
+At the early stage of the data analysis procedure, we usually do not have much valid information on the underlying strucutre of the dataset. An unverified assumption may bring us much danger. We recommend data analysts to have some precaution or concerns on the potential uncertainty in the dataset and we have provided a method to help detect the uncertainty. This will bring more safety and basis for more delicate analysis in the future after having more background information. 
+
+```{r}
+#future scenario paths
+#x.dat.test 
+rep.time <- 1e2
+set.seed(12)
+x.mat.test <- replicate(rep.time, 
+                        {re <- rbinom.maximal(M, p.par = par.true, varphi = function(x) 2*x-1)
+  re$x.seq}
+  )
+
+colnames(x.mat.test) <- paste("RepPath", seq_len(rep.time))
+S.mat.test <- apply(x.mat.test,2,cumsum)
+
+DrawIndex <- seq_len(M)
+
+x.dat.test <- as.data.frame(cbind(DrawIndex, x.mat.test))
+S.dat.test <- as.data.frame(cbind(DrawIndex, S.mat.test))
+
+library(reshape2)
+#reshape the data so that I can do the matplot in ggplot
+S.dat.test.plot <- melt(S.dat.test, id.vars = "DrawIndex")
+
+ggplot(S.dat.test.plot, aes(x=DrawIndex, y=value, group=variable, colour=variable)) + geom_line(aes(lty=variable)) + theme(legend.position="none") + ggtitle(paste(rep.time,"replicated paths of S_n vs n")) + xlab("DrawIndex") + ylab("TotalIncome")
+
+
+mean.seq.test1 <- apply(x.mat.test, 2, mean)
+#mean.seq.test1 <- replicate(rep.time,{
+#  mean(rbinom.maximal(M, p.par = par.true,                               varphi = function(x) 2*x-1))
+#  })
+
+hist(mean.seq.test1)
+```
+
+```{r, eval=FALSE}
+#parallel computing can be applied here
+#sim side: if M is larger than the average blocking size, then we cannot observe the mean-uncertainty because it is averaged out by including various parameters from different blocks 
+mean.seq.test1 <- replicate(1e2,{
+  mean(rbinom.maximal(M, p.par = par.true,                               
+                      varphi = function(x) 2*x-1))
+  })
+hist(mean.seq.test1)
+```
+
+```{r}
+#save(mean.seq.test1, file = "mean-seq-test1.Rdata")
+#remove(mean.seq.test1)
+load("mean-seq-test1.Rdata")
+#plot(mean.seq.test1, type = "l")
+
+hist(mean.seq.test1, main = paste0("Replicated X.bar_",M,": the true sampling distn"))
+hist(mean.seq.test1*M, main = paste0("Replicated S_",M,": the true sampling distn"))
+#unstable market 
+#put the histograms together
+
+conf.int.mod <- quantile(mean.boot.seq, probs = c(.025,.975))
+mean.seq.comp <- data.frame(id = seq_along(mean.seq.test1), AveIncomeRep.test = mean.seq.test1, AveIncomeRep.mod = mean.boot.seq)
+mean.seq.comp.hist <- melt(mean.seq.comp, id.vars = "id")
+
+ggplot(mean.seq.comp.hist, aes(x=value, fill=variable)) + geom_histogram(position = "identity", alpha=0.5, bins= 40) + xlab("S_M/M") + ggtitle(paste0("1000 replications of S_M/M: model vs true,", "with M=", M))
+#+ geom_vline(xintercept = conf.int.mod, colour="red")
+```
+
+Let us try the bootstrap with blocking, 
+```{r}
+#try bootstrapping with blocking (ovlp)
+b.seq <- seq(10, M/10, 10)
+rep.time <- 1e3
+mean.boot.seq.full <- numeric(length(b.seq)*rep.time)
+block.len.seq <- rep(b.seq, each = rep.time)
+ind.mat <- matrix(seq_len(length(b.seq)*rep.time), ncol = rep.time, byrow = TRUE)
+#i=9
+for (i in seq_along(b.seq)){
+  b <- b.seq[i]
+  mean.boot.seq.bl <- mean.boot.block(x.seq.train, block.len = b, rep.times = rep.time)
+  mean.boot.seq.full[ind.mat[i,]] <- mean.boot.seq.bl
+}
+#i=i+1
+
+#mean.boot.seq.bl <- mean.boot.block(x.seq.train, block.len = 25)
+#mean.boot.seq <- mean.boot.seq.bl #capture the covariance part 
+
+mean.seq.comp <- data.frame(block.len =  as.factor(c(rep(0,rep.time),block.len.seq)), AveIncomeRep = c(mean.seq.test1, mean.boot.seq.full))
+#mean.seq.comp.hist <- melt(mean.seq.comp, id.vars = "id")
+
+ggplot(mean.seq.comp, aes(x=AveIncomeRep, fill=block.len))+ geom_histogram(position = "identity", alpha=0.3, bins= 60) + xlab("S_M/M") + ggtitle(paste0(rep.time, " replications of S_M/M with M =",M, ":\nModel (block.len=[10,100],ovlp) vs True (block.len=0)"))
+
+#further enlarge the block length, may help us approach the spread out. 
+#let b=M will help us do the job
+```
+In the comparison between bootstrap results (with blocking) versus the true sampling distribuiton, we can see that as we increase the block, since the enlarged blocks can better capture the potential covariance part, the distribution of $S_M/M$ tends to have larger variation. However, a common pattern from the bootstrap is the normal distribution centralized around some point between 0 to 0.05, which makes the whole sampling distribution move to the optimistic side, while the true distribution actually has larger spread-out and does not central around some point, or they potentially have multiple centres, which indicates neither optimistic nor pessimistic perspective is appropriate here for this gamble. 
+
+
+```{r}
+#try bootstrapping with blocking (non-ovlp)
+b.seq <- seq(10, M/10, 10)
+rep.time <- 1e3
+mean.boot.seq.full <- numeric(length(b.seq)*rep.time)
+block.len.seq <- rep(b.seq, each = rep.time)
+ind.mat <- matrix(seq_len(length(b.seq)*rep.time), ncol = rep.time, byrow = TRUE)
+#i=9
+for (i in seq_along(b.seq)){
+  b <- b.seq[i]
+  mean.boot.seq.bl <- mean.boot.block(x.seq.train, block.len = b, rep.times = rep.time, ovlp.ind = FALSE)
+  mean.boot.seq.full[ind.mat[i,]] <- mean.boot.seq.bl
+}
+#i=i+1
+
+#mean.boot.seq.bl <- mean.boot.block(x.seq.train, block.len = 25)
+#mean.boot.seq <- mean.boot.seq.bl #capture the covariance part 
+
+mean.seq.comp <- data.frame(block.len =  as.factor(c(rep(0,rep.time),block.len.seq)), AveIncomeRep = c(mean.seq.test1, mean.boot.seq.full))
+#mean.seq.comp.hist <- melt(mean.seq.comp, id.vars = "id")
+
+ggplot(mean.seq.comp, aes(x=AveIncomeRep, fill=block.len))+ geom_histogram(position = "identity", alpha=0.3, bins= 60) + xlab("S_M/M") + ggtitle(paste0(rep.time, " replications of S_M/M with M =",M, ":\nModel (block.len=[10,100],non-ovlp) vs True (block.len=0)"))
+```
+
+
+
+##Temp
+If we directly assume, 
+$$
+X\sim \text{Bernouli}(p)
+$$
+
+Let the partial sum be
+$$
+Y_{50}=\sum_{i=1}^{50} X_i
+$$
+Then the partial sum follows,
+$$
+Y \sim \text{Bin}(p, 50)
+$$
+
+```{r}
+#assume the dataset can be treated as a sample iid coming from a certain distribution 
+##iid from Bernoulli(p)
+
+##iid from a mixture distribution Bernoulli(p)*Unif(p.low,p.up)
+
+```
+
+give a pre-strategy,
+it will perform better the data has larger degree of uncertainty; 
+
+when p.low and p.high are very close to each other, the uncertainty plot is hard to tell or the blocking is too small
+
+```{r}
+#what kind of classical analysis is dangerous 
+#when it becomes hard to directly fit a certain probabilistic model
+#we can still step back to the more general framework called the G-expectation frame
+#to assume a nonlinear setting (more general, including linear models), 
+#to cover the uncertainty 
+
+#assume iid to give confidence interval 
+p.hat <- mean(x.seq.train)
+p.hat
+#margin of error
+#95% CI
+ME <- sqrt(p.hat*(1-p.hat)/N1)*1.96
+c(p.hat-ME, p.hat+ME)
+
+#assume iid binomial distribution 
+p.hat <- mean(y.seq.train)
+m <- length(y.seq.train)
+ME <- sqrt(n1*p.hat*(1-p.hat)/m)*1.96
+band.iid <- c(p.hat-ME, p.hat+ME) #95% confidence interval
+band.iid
+
+#check the coverage of our band
+plot(y.seq.test, type = "l")
+abline(h=band.iid, lty=2, col=2)
+```
+
+```{r}
+#assume iid F, parametric
+#bootstrap
+
+#assume iid F, nonparametric
+hist(y.seq.train)
+n1 <- length(y.seq.train)
+meanpar.hat <- mean(y.seq.train)
+est.var.hat <- (1/n1^2)*sum((y.seq.train-meanpar.hat)^2)
+est.sd.hat <- sqrt(est.var.hat)
+
+boot.stat <- function(dat){
+  n1 <- length(dat)
+  meanpar.boot <- mean(dat)
+  est.var.boot <- (1/n1^2)*sum((dat-meanpar.boot)^2)
+  (meanpar.boot -meanpar.hat)/sqrt(est.var.boot)
+}
+
+#bootstrap
+M.boot <- 2e3
+#meanpar.boot.seq <- numeric(M.boot)
+stat.boot.seq <- replicate(M.boot, {
+  y.seq.boot <- sample(y.seq.train, size = n1, replace = TRUE)
+  boot.stat(y.seq.boot)
+})
+
+hist(stat.boot.seq)
+
+quant.nonpar.boot <- quantile(meanpar.boot.seq, probs = c(.025, .975))
+
+band.iid.nonpar <- meanpar.hat - est.sd.hat*rev(quant.nonpar.boot)
+band.iid.nonpar
+
+#then further do inference on the time series model 
+
+#after getting the test data
+hist(y.seq.test)
+#ks.test(y.seq.train, y.seq.test)
+```
+
+```{r}
+#direct investigate on y.seq.train 
+hist(y.seq.train)
+band.guess <- quantile(y.seq.train, probs = c(.025,.975))
+band.guess
+
+#y.seq.test
+hist(y.seq.test)
+abline(v=band.guess, col=2, lty=2)
+
+plot(y.seq.test, type = "l")
+abline(h=band.guess, col=2, lty=2)
+
+```
+
+
+```{r}
+#assume iid Gaussian mixture 
+
+```
+
+```{r}
+#assume iid Bayes
+
+```
+
+```{r}
+#check the partial sum roughly
+x.cumsum <- cumsum(x.seq.train)
+plot(x.cumsum/seq_len(N1), type = "l")
+#transf <- function(x) sqrt(x)
+transf <- function(x) sqrt(2*x*log(log(x)))
+n.seq <- seq_len(N1)
+n.seq.sub <- n.seq[-(1:5)]
+an.seq.sub <- transf(n.seq.sub)
+x.cumsum.sub <- x.cumsum[-(1:5)]
+plot(n.seq.sub, x.cumsum.sub/an.seq.sub, type = "l")
+```
+
+```{r}
+#Bayes: a blind prior choice to give a credit interval
+##binomial with a Uniform prior
+```
+
+```{r}
+#Mixture model
+```
+
+```{r}
+#dependent model
+##Time series
+###AR(p)
+acf(x.seq.train)
+
+##Markov model
+###HMM
+
+```
+
+```{r}
+#parametric
+#iid bernoulli(p)
+plot(get.meanseq.novlp(x.seq.train, n.guess = 50), type = "l")
+
+par.est <- (mean(x.seq.train) + 1)/2
+x.seq.check <- 2*rbinom(N,1, prob = par.est)-1
+plot(get.meanseq.novlp(x.seq.check, n.guess = 50), type = "l")
+
+#simulate from the fitted model to generate the behavior of $S_M/M$
+```
+
+```{r}
+#iid Bernoulli mixture + EM algorithm
+
+
+```
+
+```{r}
+#Bayes, Bernoulli with Uniform or Beta prior 
+#ref: http://www.stat.cmu.edu/~larry/=sml/Bayes.pdf
+#page 5
+#let y = (x+1)/2
+y.seq.train <- (x.seq.train+1)/2
+S.N <- sum(y.seq.train)
+#posterior distn is beta(Sn+1,n-Sn+1)
+
+f <- function(x) dbeta(x,S.N+1, N-S.N+1)
+interval.cred <- qbeta(c(.025,.975), S.N+1, N-S.N+1)  
+
+curve(f, from = 0, to = 1, main = paste0("Posterior: Beta(S_N+1,N-S_N+1)=","Beta(",S.N+1,",",N-S.N+1,")"))
+abline(v=interval.cred, col=2, lty=2)
+
+#95% posterior interval of p is
+2*qbeta(c(.025,.975), S.N+1, N-S.N+1)-1
+
+#may make strategy based on the credible interval on p
+
+load("mean-seq-test1.Rdata")
+#plot(mean.seq.test1, type = "l")
+hist(mean.seq.test1, main = paste0("Replicated X.bar_",M,": the true sampling distn"))
+```
+
+
+##What is recommended
+
+- How can we test out the potential moment-uncertainty? 
+- How can we test out the distribution uncertainty? 
+
+We highly recommend the data analysis to test the potential uncertainty in dataset at the early stage. We definitely need to care about the potential existence of uncertainty in dataset. 
+
+We will provide a method to test or detect it so that we can build up a precaution before diving into more delicate analysis. 
+
+```{r}
+#choose the test group size as 50 
+#borrow from the max-mean idea
+gr.guess <- 50
+#plot(get.meanseq.novlp(2*rbinom(1e4,1,0.5)-1, n.guess = gr.guess), type = "l", ylab = "the income of each group", main = paste("test group size =", gr.guess))
+plot(get.meanseq.novlp(x.seq.train, n.guess = gr.guess), type = "l", ylab = "the income of each group", main = paste("data.train with group size =", gr.guess)) 
+#,ylim = c(-1,1)*0.4
+
+gr.guess <- 20
+#plot(get.meanseq.novlp(2*rbinom(1e4,1,0.5)-1, n.guess = gr.guess), type = "l", ylab = "the income of each group", main = paste("test group size =", gr.guess))
+plot(get.meanseq.novlp(x.seq.train, n.guess = gr.guess), type = "l", ylab = "the income of each group", main = paste("data.train with group size =", gr.guess)) 
+#,ylim = c(-1,1)*0.4
+#plot(get.meanseq.novlp(x.seq.train, n.guess = 1e2), type = "l")
+#plot(get.meanseq.novlp(x.seq.test, n.guess = gr.guess), type = "l",ylab = "the income of each group", main = paste("data.test with group size =", gr.guess), ylim = c(-1,1)*0.4) #choose 50 
+
+#grouping will help us look at the uncertainty, but it is still not clear in both numerical and theoretical sense. 
+#how can we systematically check it?
+#borrow the idea from LLN under the G-framework
+```
+
+```{r}
+#show the movie plot first
+testUncertainty(x.seq.train, varphi = function(x) x, n.min = 20, n.max.prop = 1/10, n.step = 5, test.re = FALSE, mov.plot = TRUE, test.plot = FALSE)
+```
+
+```{r}
+#then show the test plot 
+#save these plots 
+testUncertainty(x.seq.train, varphi = function(x) x, n.min = 20, n.max.prop = 1/10, n.step = 5, test.plot = TRUE, test.new.re = TRUE)
+```
+
+
+
+```{r}
+#what is recommended: 
+#having precaution on the uncertainty before diving into delicate analysis
+testUncertainty(x.seq.train, varphi = function(x) x, n.min = 20, n.max.prop = 1/10, n.step = 5, test.re = FALSE)
+```
+
+How large the difference should be. 
+We need to consider the mean uncertainty here, and use appropriate (nonlinear) model to cover or capture the uncertainty interval. 
+
+It has mean uncertainty, 
+we want to try some model (HMM, time series) to capture this uncertainty; 
+iteratively, test the variance uncertainty
+
+```{r}
+#what is recommended: 
+#having precaution on the uncertainty before diving into delicate analysis
+testUncertainty(x.seq.train, varphi = function(x) x, n.min = M/10, n.max.prop = 1/10, n.step = 10, test.re = FALSE, get.meanseq = get.meanseq.ovlp)
+#based on the limiting theorems in G-frame
+```
+
+
+```{r}
+testUncertainty(x.seq.train, varphi = function(x) x, n.min = 20, n.max.prop = 1/10, n.step = 5, test.re = FALSE, par.true = par.true1)
+```
+
+```{r}
+testUncertainty(x.seq.train, varphi = function(x) x, n.min = 20, n.max.prop = 1/10, n.step = 5, test.re = TRUE)
+#may try a density estimation for this
+```
+
+
+```{r}
+#give the theory of the test of uncertainty 
+#H_0: iid F (moment-certainty is also included)
+#H_1: (moment uncertainty)
+##check the convergence rate 
+
+#or directly consider the curve differences in a function space (do a curve transformation)
+
+```
+
+```{r}
+#do the rigorous test of uncertainty
+
+```
+
+give a pre-strategy,
+it will perform better the data has larger degree of uncertainty; 
+
+```{r}
+#further enlarge the block length, may help us approach the spread out. 
+#we may need to check the convergence of the pattern to decide (as suggested by Prof. Yu)
+#let b=M will help us do the job
+b.seq <- seq(M/10,M,100)
+rep.time <- 1e3
+mean.boot.seq.full <- numeric(length(b.seq)*rep.time)
+block.len.seq <- rep(b.seq, each = rep.time)
+ind.mat <- matrix(seq_len(length(b.seq)*rep.time), ncol = rep.time, byrow = TRUE)
+for (i in seq_along(b.seq)){
+  b <- b.seq[i]
+  mean.boot.seq.bl <- mean.boot.block(x.seq.train, block.len = b, rep.times = rep.time)
+  mean.boot.seq.full[ind.mat[i,]] <- mean.boot.seq.bl
+}
+#i=i+1
+
+#mean.boot.seq.bl <- mean.boot.block(x.seq.train, block.len = 25)
+#mean.boot.seq <- mean.boot.seq.bl #capture the covariance part 
+
+mean.seq.comp <- data.frame(block.len =  as.factor(c(rep(0,rep.time),block.len.seq)), AveIncomeRep = c(mean.seq.test1, mean.boot.seq.full))
+#mean.seq.comp.hist <- melt(mean.seq.comp, id.vars = "id")
+
+ggplot(mean.seq.comp, aes(x=AveIncomeRep, fill=block.len))+ geom_histogram(position = "identity", alpha=0.3, bins= 60) + xlab("S_M/M") + ggtitle(paste0(rep.time, " replications of S_M/M with M =",M, ":\nModel (block.len=[", min(b.seq),",", max(b.seq),"],ovlp) vs True (block.len=0)"))
+#our method is equivalent to the bootstrap with blocking size b>1e2
+```
+
+
+when p.low and p.high are very close to each other, the uncertainty plot is hard to tell
+or the blocking is too small
+
+$$
+X\sim \text{Bernouli}(p)
+$$
+
+Let 
+$$
+Y_{50}=\sum_{i=1}^{50} X_i
+$$
+The partial sum can be expressed as
+$$
+Y \sim \text{Bin}(p, 50)
+$$
+
+```{r}
+#what kind of classical analysis is dangerous 
+#when it becomes hard to directly fit a certain probabilistic model
+#we can still step back to the more general framework called the G-expectation frame
+#to assume a nonlinear setting (more general, including linear models), 
+#to cover the uncertainty 
+
+#assume iid to give confidence interval 
+p.hat <- mean(x.seq.train)
+p.hat
+#margin of error
+#95% CI
+ME <- sqrt(p.hat*(1-p.hat)/N1)*1.96
+c(p.hat-ME, p.hat+ME)
+
+#assume iid binomial distribution 
+n1 <- 50
+y.seq.train <- get.meanseq.novlp(x.seq.train, n.guess = n1)
+y.seq.test <- get.meanseq.novlp(x.seq.test, n.guess = n1)
+p.hat <- mean(y.seq.train)
+m <- length(y.seq.train)
+ME <- sqrt(n1*p.hat*(1-p.hat)/m)*1.96
+band.iid <- c(p.hat-ME, p.hat+ME)
+band.iid
+```
+
+```{r}
+#check the coverage of our band
+plot(y.seq.test, type = "l")
+abline(h=band.iid, lty=2, col=2)
+```
+
+```{r}
+#check the partial sum roughly
+x.cumsum <- cumsum(x.seq.train)
+plot(x.cumsum/seq_len(N1), type = "l")
+#transf <- function(x) sqrt(x)
+transf <- function(x) sqrt(2*x*log(log(x)))
+n.seq <- seq_len(N1)
+n.seq.sub <- n.seq[-(1:5)]
+an.seq.sub <- transf(n.seq.sub)
+x.cumsum.sub <- x.cumsum[-(1:5)]
+plot(n.seq.sub, x.cumsum.sub/an.seq.sub, type = "l")
+```
+
+```{r}
+#Bayes: a blind prior choice to give a credit interval
+##binomial with a Uniform prior
+```
+
+```{r}
+#Mixture model + EM algorithm
+#Bern(p_1) * p + Bern(p_2) * (1-p)
+
+```
+
+```{r}
+#dependent model
+##Time series
+###AR(p)
+acf(y.seq.train)
+
+##Markov model
+###HMM
+
+```
+
+consider the summation of every $50$ draws. 
+
+Maximal comes from the pseudo simulation, described by a set of distributions with more than one element. 
+One good example is Bern(p)*Unif (with blocking).
+
+look at the dynamic of the mean sequences. 
+
+$G$-version of Bernoulli distribution
+
+The binaray or binomial dataset is hard to directly checked whether it has uncertainty or not (based on classical probablistic models). 
+
+```{r}
+N1 <- 1e4
+N2 <- 1e4
+N <- N1 + N2
+train.ind <- seq_len(N1)
+test.ind <- N1+seq_len(N2)
+#set.seed(1234567)
+#set.seed()
+par.true <- c(.4, .6)
+p.seq.full <- rmaximal.extrem(N, min = par.true[1], max = par.true[2])
+p.seq.train <- p.seq.full[train.ind]
+p.seq.test <- p.seq.full[test.ind]
+#plot(sample(p.seq.train, N, replace = TRUE), type = "l")
+#try different degree of uncertainty 
+plot(p.seq.train, type = "l", ylim = par.true)
+plot(p.seq.test, type = "l", ylim = par.true)
+x.seq.full <- numeric(N)
+for (i in seq_along(p.seq.full)){
+  p <- p.seq.full[i]
+  x.seq.full[i] <- rbinom(1, 1, p)*2-1
+}
+x.seq.train <- x.seq.full[train.ind]
+x.seq.test <- x.seq.full[test.ind]
+par.true1 <- c(min(p.seq.full), max(p.seq.full))
+par.true2 <- 2*par.true1 - 1
+```
+
+```{r}
+table(x.seq.train)
+```
+
+```{r}
+n1 <- 1
+y.seq.train <- get.meanseq.novlp(x.seq.train, n.guess = n1)
+y.seq.test <- get.meanseq.novlp(x.seq.test, n.guess = n1)
+
+y.seq <- c(y.seq.train, y.seq.test)
+#consider the partial sum
+#under sequential iid, 
+#the uncertainty will bring much danger on the cumalative sum 
+i.seq.train <- seq_along(y.seq.train)
+i.seq <- seq_along(y.seq)
+plot(i.seq.train, cumsum(y.seq.train), type = "l")
+
+#plot(i.seq, cumsum(y.seq), type = "l")
+#abline(v=length(i.seq.train), col=2, lty=2)
+
+#y.seq.cum <- cumsum(y.seq)
+#which.min(y.seq.cum) * (-0.2)
+#min(y.seq.cum)
+```
+
+##inference based on asymptotic distn
+
+```{r}
+#under H_0
+mean.est <- mean(x.seq.train)
+testUncertainty(x.seq.train, varphi = function(x) (x-mean.est)^2, n.min = 20, n.max.prop = 1/10, n.step = 5, test.re = FALSE)
+#get a approx of sdl, sdr
+sdl <- sqrt(0.998)
+sdr <- sqrt(1.002)
+
+#mean certainty, var uncertainty 
+#Bern(p) with p ~ N(0,[1,2])
+```
+
+```{r}
+#window size 
+n <- 1e3
+#randomly choose the moving window
+#uppvalue.seq <- replicate(5e3, {ind.start <- sample(seq_len(N-n+1), 1)
+#ind.sub <- seq(ind.start, length.out = n)
+#z <- mean(x.seq.train[ind.sub] - mean.est)
+#pval <- pGnorm(z, sdl = sdl/n, sdr = sdr/n)
+#pval.final <- (z>0)*(1-pval) + (z<=0)*pval
+#pval.final
+#})
+#look all the way to the tail part
+
+uppvalue <- function(z, sdl = 0.5, sdr = 1) {
+  pval <- pGnorm(z, sdl = sdl, sdr = sdr)
+  pval.final <- (z>0)*(1-pval) + (z<=0)*pval
+  pval.final
+}
+
+#uppvalue(-2)
+
+uppvalue.seq <- replicate(5e3, {ind.start <- sample(seq_len(N-n+1), 1)
+ind.sub <- seq(ind.start, length.out = n)
+z <- mean(x.seq.train[ind.sub] - mean.est)*sqrt(n)
+pval <- pGnorm(z, sdl = sdl, sdr = sdr)
+pval.final <- (z>0)*(1-pval) + (z<=0)*pval
+pval.final
+})
+ 
+```
+
+```{r}
+hist(uppvalue.seq, breaks = "scott")
+```
+
+```{r}
+hist(uppvalue.seq[uppvalue.seq<.002])
+```
+
+```{r}
+summary(uppvalue.seq)
+```
+
+
+```{r}
+#max(which())
+#the test result will depend on how large n is
+```
+
+```{r}
+mean(uppvalue.seq<.03) 
+mean(uppvalue.seq<.02) 
+mean(uppvalue.seq<.01)
+mean(uppvalue.seq<.008)
+mean(uppvalue.seq<.005)
+#we almost always reject H_0
+#strong evidence that it has mean uncertainty
+```
+
+Try to find the critical value (or the rejection region)
+
+```{r}
+f <- function(x) uppvalue(x, sdl=sdl, sdr=sdr)
+curve(f, from = -5, to = 5)
+abline(h=.01, lty=2, col=2)
+#sdl and sdr are very close
+#find the uniroot
+
+#then consider root/sqrt(n)
+
+curve(uppvalue, from = -5, to = 5)
+```
+
+##Explore the max of group average
+
+```{r}
+x.seq <- seq(-5,5,.01)
+dGnorm.seq <- sapply(x.seq, dGnorm)
+maxmean.pdf.seq <- sapply(x.seq, function(x) pdf.maxmean(x,m=10))
+matplot(x.seq, cbind(dGnorm.seq, maxmean.pdf.seq), type = "l")
+```
+
+
+
+```{r}
+N <- 1e4; n <- 1e3;
+m <- floor(N/n)
+uppvalue.maxmean(3, m=m)
+uppvalue.maxmean(-.5, m=m)
+f <- function(x) uppvalue.maxmean(x, m=m, sdl=sdl, sdr=sdr)
+curve(f, from = -2, to = 5, n=1e3)
+abline(h=.01, lty=2, col=2)
+#scaled by sqrt(n)
+```
+
+```{r}
+alpha <- .01
+g <- function(x) f(x) - alpha
+b.alpha.scale <- uniroot(g, interval = c(2,4))
+b.alpha <- b.alpha.scale$root/sqrt(n)
+b.alpha
+#as long as max.mean > b.alpha, it is too extreme, we have strong evidence to reject the null
+```
+
+```{r}
+mean.seq <- get.meanseq.novlp(x.seq.train, n.guess = 1e3)
+max(mean.seq)
+uppvalue.maxmean(max(mean.seq)*sqrt(n), m=m, sdl=sdl, sdr=sdr)
+```
+
+```{r}
+x.seq <- seq(-5,5,.01)
+dGnorm.seq <- sapply(x.seq, dGnorm)
+for (m in seq(10,2e2,10)){
+maxmean.pdf.seq <- sapply(x.seq, function(x) pdf.maxmean(x,m=m))
+minmean.pdf.seq <- sapply(x.seq, function(x) pdf.minmean(x,m=m))
+dat.full <- data.frame(x = x.seq, pdf.up.Gnorm = dGnorm.seq, pdf.up.maxmean = maxmean.pdf.seq, pdf.up.minmean=minmean.pdf.seq)
+dat <- reshape2::melt(dat.full, id.vars="x")
+print(ggplot(dat, aes(x=x, y=value, group=variable, colour=variable)) + geom_line(aes(lty=variable)) + ylim(0,2.1) + ggtitle(paste("Asymptotic Nonlinear Distn of the Min \n and Max Group Mean with m = ",m))) 
+}
+#m <- 1e2
+
+#matplot(x.seq, cbind(dGnorm.seq, maxmean.pdf.seq), type = "l")
+```
+
+
+
+```{r}
+N <- 1e4; n <- 1e3;
+m <- floor(N/n)
+uppvalue.minmean(3, m=m)
+uppvalue.minmean(-.5, m=m)
+f <- function(x) uppvalue.minmean(x, m=m, sdl=sdl, sdr=sdr)
+curve(f, from = -5, to = 2, n=1e3)
+abline(h=.01, lty=2, col=2)
+```
+
+```{r}
+alpha <- .01
+g <- function(x) f(x) - alpha
+a.alpha.scale <- uniroot(g, interval = c(-4,-2))
+a.alpha <- b.alpha.scale$root/sqrt(n)
+a.alpha
+#as long as min.mean < a.alpha, it is too extreme, we have strong evidence to reject the null
+```
+
+```{r}
+library(numDeriv)
+f <- function(x) uppvalue.minmean(x, m=m, sdl=sdl, sdr=sdr)
+x.seq <- seq(-5,5,.01)
+pdf.minmean.seq <- grad(f,x.seq)
+curve(dGnorm, from = -5, to = 5, ylim = c(0,0.8))
+lines(x.seq, pdf.minmean.seq, lty=2, col=2)
+```
+
+```{r}
+mean.seq <- get.meanseq.novlp(x.seq.train, n.guess = 1e3)
+min(mean.seq)
+
+uppvalue.minmean(min(mean.seq)*sqrt(n), m=m, sdl=sdl,sdr=sdr)
+#write the test procedure into a function
+```
+
+consider the behavior of the a.alpha and b.alpha. 
+```{r}
+#under H_0, 
+#the stochastic behavior of max and min-mean 
+#under different n 
+#choice of n and m
+
+
+```
+
+
+#Estimation: check the relative entropy 
+```{r}
+testUncertainty(x.seq.train, varphi = function(x) x, n.min =10, n.max.prop = 1/10, n.step = 10, test.re = FALSE)
+```
+
+```{r}
+testUncertainty(x.seq.train, varphi = function(x) x, n.min = 20, n.max.prop = 1/10, n.step = 5, test.re = FALSE, test.plot = FALSE, mov.plot = TRUE, par.true = par.true1)
+```
+
+```{r}
+#consider the relative entropy, 
+#one attempt: choose the group size which maximizes the relative entropy of our dat vs rearf dat 
+library(entropy)
+dat.seq <- x.seq.train
+N <- length(dat.seq)
+set.seed(1234)
+ref.seq <- sample(dat.seq, N, replace = TRUE)
+n.seq <- seq(10,N/2,10)
+KL.seq <- numeric(length(n.seq))
+for (i in seq_along(n.seq)){
+  n <- n.seq[i]
+  meanseq.dat <- get.meanseq.novlp(dat.seq, n.guess = n)
+  meanseq.ref <- get.meanseq.novlp(ref.seq, n.guess = n)
+#set up the bin for each group size
+  breaks1 <- seq(-1,1,2/n)
+  re.dat <- hist(meanseq.dat, breaks = breaks1, plot = FALSE)
+  count.dat <- re.dat$counts
+  re.ref <- hist(meanseq.ref, breaks = breaks1, plot = FALSE)
+  count.ref <- re.ref$counts
+#KL.empirical(count.dat, count.ref)
+#KL.empirical(count.ref, count.dat)
+  KL.seq[i] <- KL.Dirichlet(count.dat, count.ref, a1=1/6, a2=1/6)
+  #to smooth out the zero counts part
+#KL.Dirichlet(count.ref, count.dat, a1=1/6, a2=1/6)
+#freq.dat <- table(meanseq.dat)
+#freq.ref <- table(meanseq.ref)
+}
+plot(n.seq, KL.seq, type = "l")
+#scatter.smooth(n.seq, KL.seq)
+abline(v=n.seq[which.max(KL.seq)], lwd=1.5, col="brown", lty=2)
+#a heuristic method
+#the location of the maximized relative entropy
+```
+
+It can capture the change of the dynamic (dat vs ref) as the group size increases. 
+
+```{r}
+N <- 1e4
+varphi1 <- function(x) 2*x-1
+par.true <- c(0.3,0.7)
+gr.guess <- 150
+par.true1 <- varphi1(par.true)
+
+#set.seed(12345)
+#under equal block setting, we do not really need the true block size, only need a perfect seperation of diffferent measures and the group size itself is not very small
+#dat.seq <- rbinom.maximal(N, size=1, p.par = par.true, 
+#                             varphi = varphi1, rmaximal = #rmaximal.extrem.eq, gr.len = gr.guess)
+dat.seq <- rbinom.maximal(N, size=1, p.par = par.true, 
+                             varphi = varphi1, rmaximal = rmaximal.extrem, gr.len = gr.guess)
+
+testUncertainty(dat.seq, varphi = function(x) x, n.min =5, n.max.prop = 1/10, n.step = 5, test.re = FALSE)
+```
+
+```{r}
+#N <- length(dat.seq)
+ref.seq <- sample(dat.seq, N, replace = TRUE)
+n.seq <- seq(10,N/2,10)
+KL.seq <- numeric(length(n.seq))
+for (i in seq_along(n.seq)){
+  n <- n.seq[i]
+  meanseq.dat <- get.meanseq.novlp(dat.seq, n.guess = n)
+  meanseq.ref <- get.meanseq.novlp(ref.seq, n.guess = n)
+#set up the bin for each group size
+  breaks1 <- seq(-1,1,2/n)
+  re.dat <- hist(meanseq.dat, breaks = breaks1, plot = FALSE)
+  count.dat <- re.dat$counts
+  re.ref <- hist(meanseq.ref, breaks = breaks1, plot = FALSE)
+  count.ref <- re.ref$counts
+#KL.empirical(count.dat, count.ref)
+#KL.empirical(count.ref, count.dat)
+  KL.seq[i] <- KL.Dirichlet(count.dat, count.ref, a1=1/6, a2=1/6)
+  #to smooth out the zero counts part
+#KL.Dirichlet(count.ref, count.dat, a1=1/6, a2=1/6)
+#freq.dat <- table(meanseq.dat)
+#freq.ref <- table(meanseq.ref)
+}
+plot(n.seq, KL.seq, type = "l")
+#scatter.smooth(n.seq, KL.seq)
+#abline(v=n.seq[which.max(KL.seq)], lwd=1.5, col="brown", lty=2)
+abline(v=gr.guess, lwd=1.5, col="brown", lty=2)
+max.mean(dat.seq, n.guess = n.seq[which.max(KL.seq)])
+par.true1
+```
+
+
+```{r}
+set.seed(1234)
+w.seq <- rsemiGnorm(1e4, sig.low = 1, sig.up = 2)
+plot(w.seq, type = "l")
+```
+
+```{r}
+testUncertainty(w.seq, moment.num = 2, test.re = FALSE, n.step = 10)
+```
+
+
+#Variance Uncertainty: Simulation Study
+
+```{r}
+set.seed(1234)
+N <-3e3
+#classical normal
+w.seq <- rnorm(N, mean = 0, sd = 2)
+varphi <- function(x) StrechSmalls(x^2)
+#varphi <- function(x) x^2
+w2.seq <- varphi(w.seq)
+plot(w.seq, type = "l")
+plot(w2.seq, type = "l")
+dat.seq <- w.seq
+dat2.seq <- varphi(dat.seq)
+#make inference on the behavior of the future average volatility (estimated by S_M/M), e.g. S_M/M is the sample variance using the data from the past M days. 
+```
+
+```{r}
+#distribution certainty
+#Gaussian mixture
+#sc <- 1/10
+prob.seq <- c(.10,.85,.05)
+cum.prob <- cumsum(prob.seq)
+sd.seq <- c(0.01, 0.02, 0.04)
+u <- runif(N)
+v.seq <- (u<=cum.prob[1])*sd.seq[1] + (cum.prob[1]<u & u<=cum.prob[2])*sd.seq[2] + 
+  (cum.prob[2]<u & u<=cum.prob[3])*sd.seq[3]
+w.seq.mixture <- v.seq*rnorm(N, mean = 0,sd = 1)
+plot(w.seq.mixture, type = "l")
+plot(w.seq.mixture^2, type = "l")
+#it is essentially a mixture distribution
+```
+
+```{r}
+#no mean uncertainty
+testUncertainty(w.seq.mixture, moment.num = 1)
+```
+
+```{r}
+#no variance uncertainty
+testUncertainty(w.seq.mixture, moment.num = 2)
+```
+
+##Semi-G-normal distribution
+```{r}
+#distribution uncertainty 
+#variance uncertainty
+#simulation
+#semi-G-norm
+#with extreme maximal
+N <- 5e3
+set.seed(250881732)
+#w.seq <- rsemiGnorm(N, sig.low = 1, sig.up = 2, rmaximal.k = rmaximal)
+re.seq <- rsemiGnorm(N, sig.low = 1, sig.up = 2, rmaximal.k = rmaximal.extrem)
+plot(re.seq$w.seq, type = "l")
+
+plot(re.seq$z.seq, type = "l")
+
+#z.seq <- rmaximal.extrem(N, min = 1, max = 2)
+
+```
+
+```{r}
+w.seq.train <- w.seq
+N1 <- 3e2
+w.seq.test <- rsemiGnorm(N1, sig.low = 1, sig.up = 2, rmaximal.k = rmaximal.extrem)
+plot(w.seq.test, type = "l")
+```
+
+```{r}
+#check the variance seqence
+
+```
+
+
+
+```{r}
+testUncertainty(w.seq, moment.num = 1)
+#, par.true = c(1,2)
+```
+
+```{r}
+testUncertainty(w.seq, moment.num = 2)
+#, par.true = c(1,2)
+```
+
+```{r}
+testUncertainty(w.seq, moment.num = 3)
+#it has skewness certainty
+```
+
+```{r}
+testUncertainty(w.seq, moment.num = 4)
+#it has kurtosis uncertainty 
+```
+
+```{r}
+#distribution uncertainty 
+#variance uncertainty
+#real dataset 
+#no mean uncertainty
+#testUncertainty(logReturn.msft, moment.num = 1)
+```
+
+```{r}
+#significant variance uncertainty
+#plot(logRe)
+#check varphi = 1/x^2, 
+#-x^2
+#testUncertainty(logReturn.gspc, moment.num = 2)
+#one interpretation is the high volatility has strong uncertainty, 
+#uncertain high volatlity
+#but the low volatility part is not so uncertain
+#we do not need to worry too much on some uncertain extreme low volatility
+```
+
+```{r}
+#use a new transformation (check my ref notes)
+#apply to each group 
+#med(x-med)
+```
+
+```{r}
+#fit the Markov switch model 
+#time series model 
+
+#criterion, prediction on the future scenario (the future variance, or the future second-moment)
+
+
+```
+
+
+##log return data
+```{r}
+library(quantmod) #if not updating R and the package, it will show errors 
+getSymbols(c("MSFT", "IBM"), src = "yahoo")
+msft <- MSFT[,"MSFT.Close"]
+ibm <- IBM[,"IBM.Close"]
+logReturn.ibm <- diff(log(ibm))
+logReturn.ibm <- logReturn.ibm[-1] #remove the NA
+logReturn.msft <- diff(log(msft))
+logReturn.msft <- logReturn.msft[-1] #remove the NA
+
+#getSymbols( "^GSPC", from="2004-01-01" )
+#gspcRets = diff( log( Cl( GSPC ) ) )
+#logReturn.gspc = as.numeric(gspcRets)
+```
+
+```{r}
+#Ref: https://www.r-bloggers.com/getting-started-with-hidden-markov-models-in-r/
+#Sys.setenv(tz = "UTC")
+getSymbols("^GSPC", from="1990-01-01", to="2019-05-14")
+gspc <- GSPC[,"GSPC.Close"] #gspc <- Cl(GSPC)
+logReturn.gspc.old <- diff(log(gspc))
+logReturn.gspc <- logReturn.gspc.old[-1]
+```
+
+With larger uncertainty, the estimation of the sd bounds (in this case, the sd bounds of variance) becomes less accurate. 
+
+```{r}
+#test the uncertainty 
+testUncertainty(w.seq, moment.num = 1, n.min = 20, n.max.prop = 1/10, test.plot = TRUE, test.new.re = FALSE, n.check = 1e2)
+```
+
+```{r}
+#testUncertainty(w.seq, moment.num = 2, n.min = 20, n.max.prop = 1/10, test.plot = TRUE, test.iid.re = TRUE)
+```
+
+```{r}
+#estimate the variance of variance, under the null that variance is certain
+#check the variance part
+testUncertainty(w.seq, moment.num = 2, n.min = 20, n.max.prop = 1/10, test.plot = TRUE, test.new.re = FALSE, n.check = 1e2)
+```
+
+
+
+#Real Dataset: One Complete Practice
+##log return data
+```{r}
+library(quantmod) #if not updating R and the package, it will show errors 
+getSymbols(c("MSFT", "IBM"), src = "yahoo")
+msft <- MSFT[,"MSFT.Close"]
+ibm <- IBM[,"IBM.Close"]
+logReturn.ibm <- diff(log(ibm))
+logReturn.ibm <- logReturn.ibm[-1] #remove the NA
+logReturn.msft <- diff(log(msft))
+logReturn.msft <- logReturn.msft[-1] #remove the NA
+
+#getSymbols( "^GSPC", from="2004-01-01" )
+#gspcRets = diff( log( Cl( GSPC ) ) )
+#logReturn.gspc = as.numeric(gspcRets)
+```
+
+```{r}
+#Ref: https://www.r-bloggers.com/getting-started-with-hidden-markov-models-in-r/
+#Sys.setenv(tz = "UTC")
+getSymbols("^GSPC", from="1990-01-01", to="2018-10-13")
+gspc <- GSPC[,"GSPC.Close"] #gspc <- Cl(GSPC)
+logReturn.gspc.old <- diff(log(gspc))
+logReturn.gspc <- logReturn.gspc.old[-1]
+#check the NASDAQ 
+```
+
+```{r}
+#also check the Chinese market
+#hsi
+```
+
+
+```{r}
+#initial analysis
+# Plot the S&P 500 returns
+#ggplot( sp500LRdf, aes(Date) ) + 
+#  geom_line( aes( y = logret ) ) +
+#  labs( title = "S&P 500 log Returns")
+plot(gspc, type = "l", main = "GSPC")
+plot(logReturn.gspc, type = "l",main="log return of GSPC") 
+logReturn.gspc.num <- as.numeric(logReturn.gspc)
+#2008 Financial Crisis
+mean.seq.gspc <- get.meanseq.novlp(logReturn.gspc.num^2, n.guess = 20)
+plot(mean.seq.gspc, type = "l")
+```
+
+```{r}
+logReturn.gspc.num <- as.numeric(logReturn.gspc)
+logreturn.seq <- logReturn.gspc.num * 10 
+#times 10 only to enlarge the small value for better computation (reduce truncation error) 
+#logreturn.seq <- as.numeric(logReturn.msft)*10
+#logreturn.seq <- sp500LRdf$logret * 10
+
+#check mean uncertainty (mean certainty, zero)
+testUncertainty(logreturn.seq, varphi = function(x) x)
+##mean is certain
+
+#check variance uncertainty
+#show the movie first 
+testUncertainty(logreturn.seq, varphi = function(x) x^2, n.max.prop = 1/10, n.min = 50, hist.bin = 40, mov.plot = TRUE, test.plot = FALSE)
+#aggregate the info from the movie to get the test plot
+testUncertainty(logreturn.seq, varphi = function(x) x^2, n.max.prop = 1/10, n.min = 50, hist.bin = 40)
+
+ep <- 0.1
+testUncertainty(logreturn.seq, varphi = function(x) 1/((x+ep)^2), n.max.prop = 1/10, n.min = 50, hist.bin = 40)
+#check the transformation
+#hist(logreturn.seq^2, breaks = "scott")
+
+testUncertainty(logreturn.seq, varphi = function(x) StrechSmalls(x^2), n.max.prop = 1/10, n.min = 50, hist.bin = 40)
+
+testUncertainty(logreturn.seq, varphi = function(x) StrechSmalls(StrechSmalls(x^2)), n.max.prop = 1/10, n.min = 50, hist.bin = 40)
+
+##variance is uncertain
+
+#check the skewness uncertainty
+testUncertainty(logreturn.seq, n.max.prop = 1/10, n.min = 50, varphi = function(x) x^3)
+##skewness is certain (zero)
+
+#check the kurtosis uncertainty
+testUncertainty(logreturn.seq, varphi = function(x) x^4)
+##hard to see
+#we can use this transformation log(1+x) to stretch small values to be larger and alleviate the explosion of large values
+#StrechSmalls <- log1p
+testUncertainty(logreturn.seq, varphi = function(x) StrechSmalls(x^4), n.max.prop = 1/10)
+#we can see that it has kurtosis uncertainty
+testUncertainty(logreturn.seq, varphi = function(x) StrechSmalls(StrechSmalls(StrechSmalls(StrechSmalls(x^4)))), hist.bin = 40, n.max.prop = 1/10)
+#we can also apply this transformation many times, which will stretch more but the one-time stretch is already good enough for us. 
+```
+
+The reason the transformation will work is that 
+$$
+\ln (1+x) = x - x^2 + O(x^3).
+$$
+
+The remainder is reasonablely small as long as $|x|<1$. 
+We will have $\ln (1+x)\approx x$ when $x$ is small ($|x|\ll 1$) and $x>\ln(1+x)$ when $|x|$ is close to $1$. 
+
+For higher moments, the error of estimation (or the variance of the estimators) will come into play, which requires larger data size if we want to better see the moments-uncertainty. 
+
+Goal (explicitly): Capture the range of the uncertain volatility (the best and worst case); 
+
+##classical methods
+###parametric
+
+Assuming certain distribution
+```{r}
+qqnorm(logreturn.seq)
+qqline(logreturn.seq, col=2)
+```
+
+```{r}
+#assume normal distribution
+#mean(w.seq)
+#var(w.seq)
+mean(w.seq^2)
+#built up the confidence interval for the variance 
+```
+
+Parametric Bootstrap
+
+```{r}
+#assume t distribution 
+```
+
+###non-parametric 
+
+Non-parametric Bootstrap 
+```{r}
+#bootstrap to create confidence interval 
+
+```
+
+```{r}
+
+```
+
+###Bayes
+
+###HMM + EM
+
+(this is a Bayes method in the fundamental sense)
+```{r}
+#ref:https://www.quantstart.com/articles/hidden-markov-models-for-regime-detection-using-r
+library(depmixS4)
+hmm <- depmix(logReturn.gspc.num ~ 1, family = gaussian(), nstates = 4, data = data.frame(logReturn.gspc.num = logReturn.gspc.num))
+#set.seed(1)
+hmmfit <- fit(hmm, verbose = FALSE)
+summary(hmmfit)
+#as.matrix(hmmfit@transition)
+post_probs <- posterior(hmmfit)
+
+#layout(1:2)
+#plot(logReturn.gspc.num, type='l', main='Regime Detection', xlab='', ylab='Log Returns of GSPC')
+#matplot(post_probs[,-1], type='l', main='Regime Posterior Probabilities', ylab='Probability')
+#legend(x='bottomleft', c('Regime #1','Regime #2', 'Regime #3'), fill=1:3, bty='n')
+
+
+#choose the vol regime based on the prob
+#then see the vol clustering pattern 
+
+#log return data is not mixture normal
+#it is a mixture of normal with different parameters (with blocking design)
+
+#we may consider the continous Markov Chain to better capture the blocking properties. 
+#here we can use this test to test out this feature (blocking, or the distribution uncertainty)
+```
+
+```{r}
+#extract the transition matrix 
+mat.vec <- c(hmmfit@transition[[1]]@parameters$coefficients, 
+  hmmfit@transition[[2]]@parameters$coefficients,
+  hmmfit@transition[[3]]@parameters$coefficients,
+  hmmfit@transition[[4]]@parameters$coefficients)
+trans.mat <- matrix(mat.vec, ncol = 4,byrow = TRUE)
+#apply(trans.mat, 1, sum)
+N <- 5e3
+sig.seq <- sim.hmm(N, tpm = trans.mat, Rho = Rho.mat, yval = yval.seq)
+#plot(sig.seq, type = "l")
+mc.seq <- rnorm(N)*sig.seq
+```
+
+```{r}
+#A more straightforward coding
+#non-parametric 
+library(hmm.discnp)
+mod <- hmm(logReturn.gspc.num, K=3)
+mod$tpm
+head(mod$Rho)
+```
+
+HMM may be equivalent to a Bayes model. 
+
+###GM +EM
+
+###Implied vol
+from the paper regarding UVM (uncertain volatility model)
+
+###GARCH
+GARCH(1,1)
+assume dependence structure between the variances, it may fit into the setting of Maximal distribution. 
+$$
+\sigma^2_n = \gamma V_L + \alpha u_{n-1}^2 + \beta \sigma^2_{n-1}
+$$
+where $u_n$ is the log return at day $n$. 
+It may better capture the clustering pattern of the volatility. 
+(this design is highly based on the experience and background knowledge about the log return data; if we have little idea about the background of the dataset, we can hardly directly apply GARCH model before doing any testing.)
+
+```{r}
+#ref: https://www.r-bloggers.com/a-practical-introduction-to-garch-modeling/
+#install.packages("rugarch")
+library(rugarch)
+#fit the garch model on different part of dataset
+#fit the garch(1,1)
+#start from a simple fitting
+gspec.ru <- ugarchspec(mean.model=list(
+      armaOrder=c(0,0)), distribution="std")
+logreturn.seq.sub <- logreturn.seq
+gfit.ru <- ugarchfit(gspec.ru, logreturn.seq.sub)
+coef(gfit.ru)
+#shape parameter 
+
+#store the estimation results
+garch.est <- function(dat, par.name = "beta1"){
+  gspec.ru <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1)), mean.model=list(
+      armaOrder=c(1,0)), distribution="std")
+  gfit.ru <- ugarchfit(gspec.ru, dat)
+  re <- coef(gfit.ru)
+  re[par.name]
+}
+
+garch.est(logreturn.seq.sub)
+#ar1, AR(1) parameter
+#alpha1, ARCH(1) parameter
+#beta1, GARCH(1) parameter
+
+#est.seq["beta1"]
+```
+
+```{r}
+#plot in-sample volatility estimates
+plot(sqrt(252) * gfit.ru@fit$sigma, type='l')
+#a model on the sigma part
+```
+
+```{r}
+#do the estimation on the moving average fashion 
+#create the moving average sequence 
+est.seq <- get.groupfn.seq(logreturn.seq, n.guess = 900, groupfn = garch.est, step = 200)
+#ref to the G-VaR paper as a side reference 
+#hist(est.seq)
+plot(est.seq, type="l")
+```
+
+```{r}
+#ugarchsim
+re.sim.garch <- ugarchsim(gfit.ru, n.sim = length(logreturn.seq), prereturns = logreturn.seq[seq_len(100)], rseed = 12344)
+
+ref.seq.garch <- re.sim.garch@simulation$seriesSim
+plot(ref.seq.garch, type = "l")
+
+plot(re.sim.garch@simulation$sigmaSim, type = "l") #GARCH(1,1)
+#check the parameter uncertainty
+#it does mimic the volatility clustering pattern 
+```
+
+```{r}
+#make a direct comparison plot
+datmat.com <- cbind(logreturn.seq, ref.seq.garch)
+matplot(datmat.com[100 + seq_len(2000), ], type = "l")
+matplot(datmat.com, type = "l")
+#look at the volatility clustering
+#alpha
+#ggplot(data = data.frame(x = seq_along(logreturn.seq), y1 = logreturn.seq, y2 = ref.seq.garch))  + geom_line(aes(x=x, y=y1))
+```
+
+```{r}
+#ref dataset: simulate the fitted model fed by the whole dataset 
+testUncertainty(logreturn.seq, ref.seq = ref.seq.garch, special.groupfn = TRUE, mov.gr.step = 200, group.function = garch.est, n.min = 900, n.max.prop = 1/5, n.step = 50, test.new.re = FALSE, test.new.plot = FALSE)
+
+#check the parameter uncertainty 
+
+#set up some warnings for the functions
+#use stopifnot
+
+#it seems that it has strong parameter uncertainty
+#visualize and test the degree of uncertainty
+#need a straightforward and reasonable situation of parameter estimation
+```
+
+```{r}
+testUncertainty(logreturn.seq, ref.seq = ref.seq.garch, special.groupfn = TRUE, mov.gr.step = 200, group.function = garch.est, n.min = 800, n.max.prop = 1/2, n.step = 50, test.new.re = FALSE, test.new.plot = FALSE)
+#moving window will make the (min, max) becomes very smooth
+```
+
+There are several things we can do from this plot:
+-  the log return data may have model uncertainty (which is not so suprising) under the GARCH filter;
+- In order to better see the parameter uncertainty, we may consider the comparison of the variation of those estimations under each group size, with one direction to check is the relative entropy. In this way, we can see which group size will make the dataset appears the most significant uncertainty. 
+
+The reason we want to explore the test and visualization of uncertainty is that, there exist some datasets which do not appear some strong varphi-uncertainty, e.g. like the mean parameter of the log return dataset; dataset simulated from a single distribution; but there do exist datasets that appear strong varphi-uncertainty. 
+
+```{r}
+garch.est(ref.seq.garch)
+#do the test of uncertainty
+```
+
+```{r}
+#re-generate the garch sequence 
+re.sim.garch.new <- ugarchsim(gfit.ru, n.sim = length(logreturn.seq), prereturns = logreturn.seq[seq_len(100)], rseed = 250881732)
+
+check.seq.garch <- re.sim.garch.new@simulation$seriesSim
+plot(check.seq.garch, type = "l")
+```
+
+```{r}
+testUncertainty(check.seq.garch, ref.seq = ref.seq.garch, special.groupfn = TRUE, mov.gr.step = 200, group.function = garch.est, n.min = 800, n.max.prop = 1/2, n.step = 100, test.new.re = FALSE, test.new.plot = FALSE)
+#we will not expect strong beta uncertainty for this sequence 
+```
+
+```{r}
+#our goal is to point out this general phenomena rather than focus one specific model
+#parameter certainty 
+
+#parameter uncertainty 
+
+#change point detection for GARCH model
+```
+
+```{r}
+#more practice, image ambiguity
+```
+
+Fit garch model on the semi-G-normal sequence. 
+
+###More in Literature
+
+```{r}
+#correlation uncertainty 
+```
+
+
+#Toy Example: the Pattern of Pi-digits
+
+Since the pattern of the digits of pi is still under exploration (whether it is a normal number), so is the stochastic structure (whether it is a uniform distribution), we can treat it as a good toy example to explore the model uncertainty in sequential sense. 
+```{r}
+#ref: https://rosettacode.org/wiki/Pi#R
+#generate the digits of pi sequence 
+suppressMessages(library(gmp))
+ONE <- as.bigz("1")
+TWO <- as.bigz("2")
+THREE <- as.bigz("3")
+FOUR <- as.bigz("4")
+SEVEN <- as.bigz("7")
+TEN <- as.bigz("10")
+ 
+q <- as.bigz("1")
+r <- as.bigz("0")
+t <- as.bigz("1")
+k <- as.bigz("1")
+n <- as.bigz("3")
+l <- as.bigz("3")
+ 
+char_printed <- 0
+ 
+how_many <- 1000
+ 
+first <- TRUE
+while (how_many > 0) {
+  if ((FOUR * q + r - t) < (n * t)) {
+    if (char_printed == 80) {
+      cat("\n")
+      char_printed <- 0
+    }
+    how_many <- how_many - 1
+    char_printed <- char_printed + 1
+    cat(as.integer(n))
+    if (first) {
+      cat(".")
+      first <- FALSE
+      char_printed <- char_printed + 1
+    }
+    nr <- as.bigz(TEN * (r - n * t))
+    n <- as.bigz(((TEN * (THREE * q + r)) %/% t) - (TEN * n))
+    q <- as.bigz(q * TEN)
+    r <- as.bigz(nr)
+  } else {
+    nr <- as.bigz((TWO * q + r) * l)
+    nn <- as.bigz((q * (SEVEN * k + TWO) + r * l) %/% (t * l))
+    q <- as.bigz(q * k)
+    t <- as.bigz(t * l)
+    l <- as.bigz(l + TWO)
+    k <- as.bigz(k + ONE)
+    n <- as.bigz(nn)
+    r <- as.bigz(nr)
+  }
+}
+cat("\n")
+```
+
+
+```{r}
+#get the digits of pi
+pie <- read.csv("http://oeis.org/A000796/b000796.txt", header=FALSE, sep=" ")
+#dig <- 75 # up to 20000 digits 
+#pistring <- paste(c(pie[1,]$V2, ".", head(pie[-1,], dig-1)$V2), collapse="")
+window.size <- 1
+#truncate the sequence if needed
+pi.seq <- pie$V2[-1]
+num.win <- floor(length(pi.seq)/window.size)
+pie.mat <- matrix(pi.seq[seq_len(window.size*num.win)], ncol=window.size, byrow = TRUE)
+#treat every 4 digits as one number in [0,1]
+compute.f <- function(vec){
+  sum(vec*10^(-seq_len(window.size)))
+}
+#compute.f(c(1,2,3,4))
+test.seq <- apply(pie.mat, 1, compute.f)
+plot(test.seq, type = "l")
+plot(test.seq[seq_len(5e3)], type = "l")
+#explore this pattern
+```
+
+```{r}
+hist(test.seq)
+hist(test.seq[seq_len(5e3)])
+```
+
+```{r}
+#EDA
+#using TKU
+#check different moments 
+testUncertainty(test.seq[seq_len(8e3)], varphi = function(x) x)
+#compare this performance with discrete uniform
+
+testUncertainty(test.seq[seq_len(1e4)], varphi = function(x) x)
+#especially check the single digit, win.size=1
+#testUncertainty(test.seq, varphi = function(x) x)
+```
+
+```{r}
+c <- mean(test.seq)
+#testUncertainty(test.seq[seq_len(2e3)], varphi = function(x) (x-c)^2)
+testUncertainty(test.seq[seq_len(8e3)], varphi = function(x) (x-c)^2)
+#no significant variance uncertainty
+```
+
+```{r}
+c <- mean(test.seq)
+testUncertainty(test.seq[seq_len(8e3)], varphi = function(x) (x-c)^3)
+#no significant skewness uncertainty
+```
+
+```{r}
+t <- 2
+testUncertainty(test.seq, varphi = function(x) exp(t*x))
+```
+
+```{r}
+testUncertainty(test.seq, varphi = function(x) sin(x))
+```
+
+```{r}
+testUncertainty(test.seq, varphi = function(x) cos(x))
+```
+
+```{r}
+#no significant distribution uncertainty
+```
+
+```{r}
+#use Maximal distribution to control this pattern 
+```
+
+
+```{r}
+#continually generate the digits of pi
+suppressMessages(library(gmp))
+ONE <- as.bigz("1")
+TWO <- as.bigz("2")
+THREE <- as.bigz("3")
+FOUR <- as.bigz("4")
+SEVEN <- as.bigz("7")
+TEN <- as.bigz("10")
+ 
+q <- as.bigz("1")
+r <- as.bigz("0")
+t <- as.bigz("1")
+k <- as.bigz("1")
+n <- as.bigz("3")
+l <- as.bigz("3")
+ 
+char_printed <- 0
+ 
+how_many <- 1000
+ 
+first <- TRUE
+while (how_many > 0) {
+  if ((FOUR * q + r - t) < (n * t)) {
+    if (char_printed == 80) {
+      cat("\n")
+      char_printed <- 0
+    }
+    how_many <- how_many - 1
+    char_printed <- char_printed + 1
+    cat(as.integer(n))
+    if (first) {
+      cat(".")
+      first <- FALSE
+      char_printed <- char_printed + 1
+    }
+    nr <- as.bigz(TEN * (r - n * t))
+    n <- as.bigz(((TEN * (THREE * q + r)) %/% t) - (TEN * n))
+    q <- as.bigz(q * TEN)
+    r <- as.bigz(nr)
+  } else {
+    nr <- as.bigz((TWO * q + r) * l)
+    nn <- as.bigz((q * (SEVEN * k + TWO) + r * l) %/% (t * l))
+    q <- as.bigz(q * k)
+    t <- as.bigz(t * l)
+    l <- as.bigz(l + TWO)
+    k <- as.bigz(k + ONE)
+    n <- as.bigz(nn)
+    r <- as.bigz(nr)
+  }
+}
+cat("\n")
+```
+
+
+#One example to explore
+```{r}
+#generate sequence with mean certainty, 
+#plot n vs S_n/n
+
+#generate sequence with mean uncertainty, 
+#plot n vs S_n/n
+#each time gives a new administrator to decide the new prob rule
+
+```
+
+
+
+#Approximate Simulation of G-normal
+```{r}
+#like AR(1)
+N <- 4e3
+set.seed(250881732)
+par.true <- c(1,4)
+w.seq <- rsemiGnorm(N, sig.low = par.true[1], sig.up = par.true[2], rmaximal.k = rmaximal.extrem)
+#after this idea of testing uncertainty, we can finally get things moving and done
+```
+
+##preparation 
+```{r}
+N1 <- 50
+N2 <- 200
+z1.seq <- rmaximal2(N1, min = 0.5, max = 1.5)
+w.seq <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], rmaximal.k = rmaximal.extrem)
+
+zw.seq <- rep(z1.seq, each=N2) + rep(w.seq, N1)
+
+N <- N1*N2
+plot(z1.seq, type = "l")
+plot(w.seq, type = "l")
+plot(zw.seq[1:floor(N/5)], type = "l")
+```
+
+```{r}
+testUncertainty(zw.seq, varphi = function(x) x, n.min = 50, n.max.prop = 1/10)
+#mean certainty
+```
+
+```{r}
+testUncertainty(zw.seq, varphi = function(x) x^3, n.min = 50, n.max.prop = 1/10)
+#skewness uncertainty
+```
+
+##partial sum
+$$
+E[W_1 + W_2] = E[E[w+W_2]_{w=W_1}]
+$$
+
+```{r}
+#W1 + W2
+par.true <- c(0.2, 0.6)
+N1 <- 1e3
+N2 <- 1e3
+#w1.seq <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2])
+#w2.seq <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2])
+set.seed(1234)
+#I may go through backward simulation
+#future has no effect on the past
+w12.seq <- numeric(N1*N2)
+ind.mat <- matrix(seq_len(N1*N2), ncol = N2, byrow = TRUE)
+w12.ref <- w12.mat <- matrix(NA, ncol = N2, nrow = N1, byrow = TRUE)
+re <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], gr.len.mean = 1e2)
+w1.seq <- re$w.seq
+for (i in seq_along(w1.seq)){
+  re2 <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], gr.len.mean = 1e2)
+  w2.seq <- re2$w.seq
+  w2.ref <- sample(w2.seq, size = length(w2.seq), replace = TRUE)
+  w12.mat[i,] <- w1.seq[i] + w2.seq
+  w12.ref[i,] <- w1.seq[i] + w2.ref
+}
+
+#w12.seq <- as.numeric(w12.mat) #by column
+w12.seq <- as.numeric(t(w12.mat)) #by row
+w12.ref <- as.numeric(t(w12.ref))
+#w2.seq <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2])
+
+#w12.seq <- rep(w1.seq, each=N2) + rep(w2.seq, N1)
+
+#parallel computing here
+
+#how to understand the simulate the sequential independence
+
+N <- N1*N2
+plot(w1.seq, type = "l")
+plot(w2.seq, type = "l")
+
+plot(w12.seq[1:floor(N/10)], type = "l")
+
+#plot(w12.seq, type = "l")
+
+plot(w12.ref[1:floor(N/10)], type = "l")
+#estimation needs to be consistent with the simulation
+```
+
+```{r}
+w1.seq2 <-sample(w1.seq, size = length(w2.seq), replace = TRUE)
+for (i in seq_along(w1.seq)){
+  re2 <- rsemiGnorm(N2, sig.low = par.true[1], sig.up = par.true[2], gr.len.mean = 1e2)
+  w2.seq <- re2$w.seq
+  w2.ref <- sample(w2.seq, size = length(w2.seq), replace = TRUE)
+  w12.mat[i,] <- w1.seq[i] + w2.seq
+  w12.ref2[i,] <- w1.seq2[i] + w2.ref
+}
+
+plot(w12.ref[1:floor(N/10)], type = "l")
+```
+
+```{r}
+#n1 <- 1e2
+#for (i in )
+
+```
+
+```{r}
+w3.seq <- rsemiGnorm(N, sig.low = par.true[1], sig.up = par.true[2], gr.len.mean = 1e2)$w.seq
+w4.seq <- rsemiGnorm(N, sig.low = par.true[1], sig.up = par.true[2], gr.len.mean = 1e2)$w.seq
+w3.seq2 <- w3.seq+w4.seq
+```
+
+```{r}
+plot(w3.seq2[1:floor(N/100)], type = "l")
+```
+
+
+
+```{r}
+n.seq1 <- 10^(1:5)
+n.seq2 <- 0.25*10^(2:6)
+n.seq3 <- 0.5*10^(2:6)
+n.seq4 <- 0.75*10^(2:5)
+n.seq.t <- c(n.seq1, n.seq2, n.seq3, n.seq4)
+#sort(n.seq.t)
+n.seq.t1 <- 10^(seq(1, 4, 0.1))
+#re <- (1:2) * (10^(1:6))
+
+#dat.mat <- w12.mat
+#row.ind.seq <- seq_len(nrow(dat.mat))
+#ref.mat <- replicate(1e3,{
+#    row.ind.boot <- sample(row.ind.seq, size = length(row.ind.seq), replace = TRUE)
+#    #dat.boot <- as.vector(dat.mat.ind)
+#    dat.mat[row.ind.boot,]
+#})
+
+#ref.seq1 <- as.numeric(t(ref.mat))  
+#plot(ref.seq1, type = "l")
+#ref.seq1 
+#testUncertainty(dat.seq = w12.seq, ref.seq = w12.ref,varphi = function(x) x^3, n.seq = floor(n.seq.t1), test.new.re = FALSE)
+#check skewness uncertainty
+#test.new.re = TRUE
+#testUncertainty(dat.seq = w12.seq, ref.seq = w12.ref,varphi = function(x) x^3, n.seq = floor(n.seq.t1), test.new.re = TRUE)
+#use the direct ref seq 
+testUncertainty(dat.seq = w12.seq, varphi = function(x) x^3, n.seq = floor(n.seq.t1), test.new.re = TRUE)
+```
+
+```{r}
+testUncertainty(dat.seq = w3.seq2, varphi = function(x) x^3, n.seq = floor(n.seq.t1), test.new.re = TRUE)
+```
+
+
+```{r}
+#check mean uncertainty
+testUncertainty(w12.seq, ref.seq = w12.ref, varphi = function(x) x, n.seq = floor(n.seq.t1), test.new.re = FALSE)
+#mean certainty
+```
+
+
+```{r}
+#check the preprint of limit theorems 
+N <- 1e4
+M <- 1e3
+sig.low <- 0.5
+sig.up <- 1
+Wn3.seq<- replicate(M,{
+x.seq <- rnorm(N)
+sig.seq <- sig.low*(x.seq<0) + sig.up*(x.seq>0)
+Wn <- sum(x.seq*sig.seq)/sqrt(N)
+Wn
+})
+hist(Wn3.seq)
+mean(Wn3.seq)
+#Wn
+
+N <- 1e4
+M <- 1e3
+sig.low <- 0
+sig.up <- 1
+Wn.seq<- replicate(M,{
+x.seq <- rnorm(N)
+sig.seq <- sig.low*(x.seq<0) + sig.up*(x.seq>0)
+Wn <- sum(x.seq*sig.seq)/sqrt(N)
+Wn
+})
+hist(Wn3.seq)
+```
+
+```{r}
+N <- 1e4
+M <- 1e3
+
+sig.low <- 1
+sig.mid <- 1.5
+sig.up <- 2
+varphi <- function(x) x^3
+#give a approximated rule based on varphi
+sig.function <- function(x, ep=0.2){
+  sig.low*(x<-ep) + sig.mid*(abs(x)<= ep) + sig.up*(x>ep)
+}
+
+#store the sigma functions
+#so that we can generate G-BM, (univariate and multivariate)
+Wn.seq<- replicate(M,{
+x.seq <- rnorm(N)
+sig.seq <- sig.function(x.seq)
+Wn <- sum(x.seq*sig.seq)/sqrt(N)
+Wn
+})
+#depend on \varphi
+hist(Wn.seq)
+mean(varphi(Wn.seq))
+```
+
+Try the pseudo simulation based on a given group size;
+
+The other direction is that, under a given degree of lacking information, view the pattern which may motivate us to view the dataset through a set of measures. 
+
+Consider
+$$
+X_t = \phi X_{t-1} + u_t, t=1,2,\dotsc,n,
+$$
+where
+$$
+u_t \sim \hat{N}(0,[\underline{\sigma}^2, \overline{\sigma}^2]), t=1,2,\dotsc,n.
+$$
+
+```{r}
+#try the iteration
+
+```
+
+#Explore the test of uncertainty in theory
+
+```{r}
+#if trying the overlapping groups
+#whether it can help us capture (at least cover) the uncertainty interval 
+N <- 4e3
+#set.seed(250881732)
+par.true <- c(1,1.5)
+z.seq <- rmaximal1(N, min = par.true[1], max = par.true[2])
+#z.seq <- rmaximal2(N, min = par.true[1], max = par.true[2])
+#z.seq <- rmaximal3(N, min = par.true[1], max = par.true[2])
+plot(z.seq, type = "l")
+#par.true1 <- c(min(z.seq), max(z.seq))^2
+par.true1 <- NULL
+#z.seq <- rmaximal(N, min = par.true[1], max = par.true[2])
+w.seq <- z.seq*rnorm(N)
+#it cannot capture if the blocking size is too small, or change too frequently 
+#very close boundaries
+#data size is too small 
+```
+
+```{r}
+testUncertainty(w.seq, varphi = function(x) x^3, n.max.prop = 1/5, n.min = 20, par.true = par.true1, get.meanseq = get.meanseq.novlp) #2nd-moment (variance) is uncertain
+```
+
+```{r}
+#may consider another difference: D_dat1 - D_dat2
+
+```
+
+
+```{r}
+#test of the range statistic
+n.min <- 50
+n.max <- floor(1/5*N)
+n.step <- 5
+n.seq <- seq(n.min, n.max, n.step)
+varphi <- function(x) x^2
+dat.seq <- w.seq
+dat2.seq <- varphi(w.seq)
+
+diff.seq <- numeric(length(n.seq))
+for (i in seq_along(n.seq)){
+  n <- n.seq[i]
+  mean.seq <- get.meanseq.novlp(dat2.seq, n.guess = n)
+  diff.seq[i] <- max(mean.seq) - min(mean.seq)
+}
+stat.obs <- min(diff.seq)
+
+M <- 1e3
+stat.seq <- replicate(M, {ref2.seq <- sample(dat2.seq, N, replace = TRUE)
+diff.seq <- numeric(length(n.seq))
+for (i in seq_along(n.seq)){
+  n <- n.seq[i]
+  mean.seq <- get.meanseq.novlp(ref2.seq, n.guess = n)
+  diff.seq[i] <- max(mean.seq) - min(mean.seq)
+}
+min(diff.seq) })
+
+
+#sig level 
+sig.level <- .05
+hist(stat.seq, xlim = c(0,max(c(stat.seq, stat.obs))))
+abline(v=quantile(stat.seq, 1-sig.level), col=2, lty=2, lwd=2)
+abline(v=stat.obs, col=1, lty=2, lwd=2)
+
+#p-value 
+mean(stat.seq>stat.obs)
+
+ggplot(NULL,aes(x=stat.seq)) + geom_histogram(position = "identity", alpha=0.8, bins=40, fill = "lightblue") + geom_vline(xintercept = quantile(stat.seq, 1-sig.level), colour="red") + geom_vline(xintercept = stat.obs, colour="black")
+```
+
+```{r}
+#equal blocking, 
+#increase the blocking size, see the testing results 
+
+#increase the uncertainty interval 
+
+```
+
+
+```{r}
+#change varphi to x^3
+n.min <- 50
+n.max <- floor(1/5*N)
+n.step <- 5
+n.seq <- seq(n.min, n.max, n.step)
+varphi <- function(x) x^3
+dat.seq <- w.seq
+dat2.seq <- varphi(w.seq)
+
+diff.seq <- numeric(length(n.seq))
+for (i in seq_along(n.seq)){
+  n <- n.seq[i]
+  mean.seq <- get.meanseq.novlp(dat2.seq, n.guess = n)
+  diff.seq[i] <- max(mean.seq) - min(mean.seq)
+}
+stat.obs <- min(diff.seq)
+
+M <- 1e3
+stat.seq <- replicate(M, {ref2.seq <- sample(dat2.seq, N, replace = TRUE)
+diff.seq <- numeric(length(n.seq))
+for (i in seq_along(n.seq)){
+  n <- n.seq[i]
+  mean.seq <- get.meanseq.novlp(ref2.seq, n.guess = n)
+  diff.seq[i] <- max(mean.seq) - min(mean.seq)
+}
+min(diff.seq) })
+
+
+#sig level 
+sig.level <- .05
+hist(stat.seq, xlim = c(0,max(c(stat.seq, stat.obs))))
+abline(v=quantile(stat.seq, 1-sig.level), col=2, lty=2, lwd=2)
+abline(v=stat.obs, col=1, lty=2, lwd=2)
+
+#p-value 
+mean(stat.seq>stat.obs)
+
+ggplot(NULL,aes(x=stat.seq)) + geom_histogram(position = "identity", alpha=0.8, bins=40, fill = "lightblue") + geom_vline(xintercept = quantile(stat.seq, 1-sig.level), colour="red") + geom_vline(xintercept = stat.obs, colour="black")
+```
+
+##test the D_N
+```{r}
+D.seq <- replicate(5e3,{
+  z.seq <- rmaximal(1e3,min = 1, max = 1.02)
+  max(z.seq)-min(z.seq)
+})
+
+D.seq2 <- replicate(5e3,{
+  z.seq <- rmaximal(1e3,min = 1, max = 200)
+  max(z.seq)-min(z.seq)
+})
+
+```
+
+```{r}
+plot(D.seq, type = "l")
+plot(D.seq2, type = "l")
+```
+
+
+```{r}
+hist(D.seq)
+hist(D.seq2)
+min(D.seq2)
+summary(D.seq2)
+```
+
+for any $\delta>0$, exists a $M_0$, after $M>M_0$, it will be smaller than $\delta$. 
+  
+```{r}
+R <- 2
+mean(D.seq>R)
+mean(D.seq2>R)
+```
+
+
+```{r}
+#check the variance uncertainty 
+#for a sequence of semi-G-normal distn 
+library(MASS)
+N = 3 
+#n=1
+sig.low = 1
+sig.up = 2
+#z = rep(sig.low,N)
+z = c(sig.low, mean(c(sig.low, sig.up)), sig.up)
+sig2.mat <- diag(z^2)
+M <- 2e3
+x.vec <- mvrnorm(M, mu=rep(0,N), Sigma=sig2.mat)
+R <- 1.5
+test.stat <- function(x){
+  x2 <- x^2
+  max(x2) - min(x2) > R
+}
+mean(apply(x.vec, 1, test.stat))
+
+M <- 2e3
+R <- 5
+power.up <- function(sig.up){
+N = 3
+sig.low = 1
+#z = rep(sig.low,N)
+z = c(sig.low, mean(c(sig.low, sig.up)), sig.up)
+sig2.mat <- diag(z^2)
+#M <- 2e3
+x.vec <- mvrnorm(M, mu=rep(0,N), Sigma=sig2.mat)
+#R <- 1.5
+test.stat <- function(x){
+  x2 <- x^2
+  max(x2) - min(x2) > R
+}
+mean(apply(x.vec, 1, test.stat))
+}
+
+sig.up.seq <- seq(1,10,0.2)
+power.up.seq <- sapply(sig.up.seq, power.up)
+#plot(sig.up.seq, power.up.seq)
+scatter.smooth(sig.up.seq, power.up.seq, ylim = c(0.1,1.1))
+abline(h=1, lty=2, col=2)
+
+#test of stationary for iid normal distribution
+```
+
+For different choices of the covariance matrix, as long as its diagonal contains the sig.low and sig.up, as sig.up-sig.low goes to infinity, this power will go to infinity. 
+
+```{r}
+power.low.del <- function(sig.up){
+N = 3
+sig.low = 1
+#z = rep(sig.low,N)
+ep <- 1e-9
+delta <- (sig.up-sig.low)*(1-ep)/2
+z = c(sig.low+delta, mean(c(sig.low, sig.up)), sig.up-delta)
+sig2.mat <- diag(z^2)
+#M <- 2e3
+x.vec <- mvrnorm(M, mu=rep(0,N), Sigma=sig2.mat)
+test.stat <- function(x){
+  x2 <- x^2
+  max(x2) - min(x2) > R
+}
+mean(apply(x.vec, 1, test.stat))
+}
+
+power.up(5)
+sig.up=5
+power.low.del(5)
+
+#sig.up.seq <- seq(1,10,0.2)
+power.low.del.seq <- sapply(sig.up.seq, power.low.del)
+#plot(sig.up.seq, power.up.seq)
+scatter.smooth(sig.up.seq, power.low.del.seq, ylim = c(0.4,1.1))
+abline(h=1, lty=2, col=2)
+
+matplot(sig.up.seq, cbind(power.up.seq, power.low.del.seq), ylim = c(0.1,1.1), type = "l")
+abline(h=1, lty=2, col="brown")
+
+power.low <- function(sig.up){
+N = 3
+sig.low = 1
+sig.up <- sig.up
+#z = rep(sig.low,N)
+z = rep(sig.low,3)
+sig2.mat <- diag(z^2)
+M <- 2e3
+x.vec <- mvrnorm(M, mu=rep(0,N), Sigma=sig2.mat)
+R <- 1.5
+test.stat <- function(x){
+  x2 <- x^2
+  max(x2) - min(x2) > R
+}
+mean(apply(x.vec, 1, test.stat))
+}
+
+#sig.up.seq <- seq(1,10,0.2)
+power.low.seq <- sapply(sig.up.seq, power.low)
+#plot(sig.up.seq, power.up.seq)
+scatter.smooth(sig.up.seq, power.low.seq)
+abline(h=1, lty=2, col=2)
+```
+
+```{r}
+#check the variance uncertainty 
+#for a sequence of semi-G-normal distn 
+#library(MASS)
+N = 10 
+n=5
+sig.low = 1
+sig.up = 1.5
+#z = rep(sig.low,N)
+#z = c(sig.low, mean(c(sig.low, sig.up)), sig.up)
+z = c(rep(sig.low,n), rep(sig.up,n))
+sig2.mat <- diag(z^2)
+M <- 2e3
+x.vec <- mvrnorm(M, mu=rep(0,N), Sigma=sig2.mat)
+R <- 1.5
+test.stat <- function(x){
+  x2 <- x^2
+  x2.mat <- matrix(x, ncol = n, byrow = TRUE)
+  x2.gr <- apply(x2.mat,1,mean)
+  max(x2.gr) - min(x2.gr) > R
+}
+mean(apply(x.vec, 1, test.stat))
+
+M <- 2e3
+R <- 1.5
+power.up <- function(sig.up){
+N = 10
+sig.low = 1
+#z = rep(sig.low,N)
+z = c(rep(sig.low,n), rep(sig.up,n))
+sig2.mat <- diag(z^2)
+#M <- 2e3
+x.vec <- mvrnorm(M, mu=rep(0,N), Sigma=sig2.mat)
+#R <- 1.5
+test.stat <- function(x){
+  x2 <- x^2
+  x2.mat <- matrix(x, ncol = n, byrow = TRUE)
+  x2.gr <- apply(x2.mat,1,mean)
+  max(x2.gr) - min(x2.gr) > R
+}
+mean(apply(x.vec, 1, test.stat))
+}
+
+sig.up.seq <- seq(1,30,0.5)
+power.up.seq <- sapply(sig.up.seq, power.up)
+#plot(sig.up.seq, power.up.seq)
+scatter.smooth(sig.up.seq, power.up.seq, ylim = c(0.02,1.1))
+abline(h=1, lty=2, col=2)
+
+#test of stationary for iid normal distribution
+```
+
+```{r}
+power.low.del <- function(sig.up){
+N = 10
+sig.low = 1
+#z = rep(sig.low,N)
+ep <- 0.1
+delta <- (sig.up-sig.low)*(1-ep)/2
+z = c(rep(sig.low+delta,n), rep(sig.up-delta,n))
+#z = c(sig.low+delta, mean(c(sig.low, sig.up)), sig.up-delta)
+sig2.mat <- diag(z^2)
+#M <- 2e3
+x.vec <- mvrnorm(M, mu=rep(0,N), Sigma=sig2.mat)
+test.stat <- function(x){
+  x2 <- x^2
+  x2.mat <- matrix(x, ncol = n, byrow = TRUE)
+  x2.gr <- apply(x2.mat,1,mean)
+  max(x2.gr) - min(x2.gr) > R
+}
+mean(apply(x.vec, 1, test.stat))
+}
+
+power.up(5)
+sig.up=5
+power.low.del(5)
+
+#sig.up.seq <- seq(1,10,0.2)
+power.low.del.seq <- sapply(sig.up.seq, power.low.del)
+#plot(sig.up.seq, power.up.seq)
+scatter.smooth(sig.up.seq, power.low.del.seq, ylim = c(0.4,1.1))
+abline(h=1, lty=2, col=2)
+
+#delta = 0.1 
+matplot(sig.up.seq, cbind(power.up.seq, power.low.del.seq), ylim = c(0.1,1.1), type = "l")
+abline(h=1, lty=2, col="brown")
+
+power.low <- function(sig.up){
+N = 3
+sig.low = 1
+sig.up <- sig.up
+#z = rep(sig.low,N)
+z = rep(sig.low,3)
+sig2.mat <- diag(z^2)
+M <- 2e3
+x.vec <- mvrnorm(M, mu=rep(0,N), Sigma=sig2.mat)
+R <- 1.5
+test.stat <- function(x){
+  x2 <- x^2
+  max(x2) - min(x2) > R
+}
+mean(apply(x.vec, 1, test.stat))
+}
+
+#sig.up.seq <- seq(1,10,0.2)
+power.low.seq <- sapply(sig.up.seq, power.low)
+#plot(sig.up.seq, power.up.seq)
+scatter.smooth(sig.up.seq, power.low.seq)
+abline(h=1, lty=2, col=2)
+```
+
+#Explore the Estimation
+```{r}
+#if using the overlapping groups
+#whether it can help us capture (at least cover) the uncertainty interval 
+N <- 4e3
+set.seed(250881732)
+par.true <- c(1,2)
+z.seq <- rmaximal1(N, min = par.true[1], max = par.true[2])
+plot(z.seq, type = "l")
+par.true1 <- c(min(z.seq), max(z.seq))
+#z.seq <- rmaximal(N, min = par.true[1], max = par.true[2])
+w.seq <- z.seq*rnorm(N)
+re <- CentralGroup.est(w.seq^2, par.true = par.true1^2) #more testing on the central group estimation (include in the extension notes on the G-frame Stats)
+re$ab.est
+```
+
+```{r}
+#try to create a bar plot for this 
+#choose the first stay 
+testUncertainty(w.seq, varphi = function(x) x^2, n.max.prop = 1/5, n.min = 20, par.true = par.true1^2, get.meanseq = get.meanseq.novlp) #2nd-moment (variance) is uncertain
+```
+
+```{r}
+testUncertainty(w.seq, varphi = function(x) x^2, n.max.prop = 1/5, n.min = 20, par.true = par.true1^2, get.meanseq = get.meanseq.sum)
+```
+
+#LS coef uncertainty
+(it will better fit into the role of prediction since it is a natural property of regression to involve training and testing dataset)
+some straightforward operator on each group to get the parameter, 
+then test the parameter uncertainty 
+
+G-version LS regression
+
+Apply the Max-mean idea to LS regression
+$$
+Y = \beta X + \epsilon, \beta \sim M[\underline\beta, \overline\beta],\epsilon\sim N(0,\sigma^2)
+$$
+
+may find the theory behind it 
+
+```{r}
+#beta should be the "nonlinear" constant: Maximal distribution
+#hist(x.seq.old)
+#x.seq <- x.seq.old - 1.3
+N1 <- 1e4
+set.seed(250881732)
+beta.low <- 0.3
+beta.up <- 0.65
+par.true <- c(beta.low, beta.up)
+#beta.seq <- rmaximal(N1, gr.len.mean = 1e2,
+#                     min=beta.low,max=beta.up)
+beta.seq <- rmaximal2(N1, min = beta.low, max = beta.up)
+sd.ep <- .08
+ep.seq <- rnorm(N1, sd=sd.ep)
+x.seq <- rnorm(N1, mean=0.5, sd=1)
+y.seq <- beta.seq*x.seq + ep.seq
+plot(x.seq, type = "l")
+plot(y.seq, type = "l")
+plot(beta.seq, type = "l")
+plot(x.seq, y.seq)
+#the differences between (beta.low, beta.up) versus the confidence interval of beta
+#grouping by time
+#or grouping by the value of x
+```
+
+```{r}
+#get.meanseq of x and y 
+```
+
+```{r}
+#linear L2
+lm.mod <- lm(y.seq~0+x.seq)
+summary(lm.mod)
+plot(lm.mod)
+(beta.lm <- lm.mod$coefficients)
+#confidence interval for beta
+beta.lm.int <- confint(lm.mod)
+```
+
+```{r}
+#test whether it has LS coef uncertainty 
+#sublinear L2
+#we need to detect the group length
+
+dat <- cbind(y.seq, x.seq) 
+N1 <- nrow(dat)
+ind <- seq_len(N1)
+n.min <- 30 
+n.max.prop <- 1/10
+n.step <- 5
+n.seq <- seq(n.min, N1*n.max.prop, n.step)
+
+#beta.seq.G <- numeric(m)
+
+ls.est <- function(yx.mat){
+  y <- yx.mat[,1]
+  x <- yx.mat[,2]
+  re <- lm(y~0+x)
+  re$coefficients
+}
+
+get.ls.estseq <- function(yx.dat, n.guess){
+  N <- nrow(yx.dat)
+  n <- n.guess
+  m <- floor(N/n)
+  N1 <- m*n
+  yx.dat.new <- yx.dat[seq_len(N1), ]
+  ind.mat <- matrix(seq_len(N1), ncol=n, byrow = TRUE)
+  yx.array <- array(NA, c(n, ncol(yx.dat), m))
+  for (i in seq_len(m)){
+    yx.array[,,i] <- yx.dat.new[ind.mat[i,], ] 
+  }
+  ls.estseq <- apply(yx.array, 3, ls.est)
+  ls.estseq
+}
+
+#get.ls.estseq(yx.dat = dat, n.guess = 2e3)
+
+
+#for (i in seq_along(n.seq)){
+#  n <- n.seq[i]
+#  ind.mat <- matrix(ind, ncol = n, byrow = TRUE)
+#  m <- nrow(ind.mat)
+#}
+
+ls.estseq.list <- vector("list", length(n.seq))
+ls.estseq.mat <- matrix(NA, ncol = 2, nrow = length(n.seq))
+
+for (j in seq_along(n.seq)){
+  n <- n.seq[j]
+  ls.estseq <- get.ls.estseq(yx.dat = dat, n.guess = n)
+  ls.estseq.list[[j]] <- ls.estseq
+  ls.estseq.mat[j,] <- c(min(ls.estseq), max(ls.estseq))
+}
+
+#a ref sequence 
+ind.ref <- sample(seq_len(N1), N1, replace = TRUE)
+dat.ref <- dat[ind.ref, ]
+#plot(dat.ref)
+
+ls.estseq.list.ref <- vector("list", length(n.seq))
+ls.estseq.mat.ref <- matrix(NA, ncol = 2, nrow = length(n.seq))
+
+for (j in seq_along(n.seq)){
+  n <- n.seq[j]
+  ls.estseq <- get.ls.estseq(yx.dat = dat.ref, n.guess = n)
+  ls.estseq.list.ref[[j]] <- ls.estseq
+  ls.estseq.mat.ref[j,] <- c(min(ls.estseq), max(ls.estseq))
+}
+
+points.dat1 <- data.frame(from="Our Data", maxmin="min", gr.var = ls.estseq.mat[,1])
+points.dat2 <- data.frame(from="Our Data", maxmin="max", gr.var = ls.estseq.mat[,2])
+points.dat3 <- data.frame(from="Ref Data", maxmin="min", gr.var = ls.estseq.mat.ref[,1])
+points.dat4 <- data.frame(from="Ref Data", maxmin="max", gr.var = ls.estseq.mat.ref[,2])
+
+#points.dat.our <- rbind(points.dat1, points.dat2)
+#points.dat.ref <- rbind(points.dat3, points.dat4)
+
+points.dat <- rbind(points.dat1, points.dat2, points.dat3, points.dat4)
+names <- paste(points.dat$from, points.dat$maxmin)
+points.dat.new <- cbind(points.dat, names, n.seq) 
+
+ #maxmin-mean curve or 2M-mean curve
+ #matplot(n.seq, cbind(dat2.minmax.mat, ref2.minmax.mat), 
+ #           type = "l", col = c(1,1,2,2))
+ print(ggplot(points.dat.new, aes(x=n.seq, y=gr.var, colour=names)) + geom_line())
+
+ #scatter plot of maxmin-mean points of Our Data vs Ref Data
+print(ggplot(points.dat.new, aes(x=from, y=gr.var, colour=names)) + geom_point())
+#qplot(factor(points.dat$from), points.dat$gr.var, colour=factor(names))
+
+#histogram of maxmin-mean points of Our Data vs Ref Data
+
+#put the histograms together 
+hist.bin = 30
+if(is.null(par.true)){
+  print(ggplot(points.dat, aes(x=gr.var, fill=from)) + geom_histogram(position = "identity", alpha=0.5, bins=hist.bin))
+} else{
+  print(ggplot(points.dat, aes(x=gr.var, fill=from)) + geom_histogram(position = "identity", alpha=0.5, bins=hist.bin) + geom_vline(xintercept = c(ls.est(dat.ref), par.true), colour=c("brown", "red", "red")))
+}
+
+#maxmin-clustering plot
+minmax.mat.sum1 <- data.frame(min.gr.var = ls.estseq.mat[,1], max.gr.var= ls.estseq.mat[,2], names=factor("Our Data"))
+minmax.mat.sum2 <- data.frame(min.gr.var = ls.estseq.mat.ref[,1], max.gr.var= ls.estseq.mat.ref[,2], names=factor("Ref Data"))
+
+minmax.mat.sum <- rbind(minmax.mat.sum1, minmax.mat.sum2)
+
+#qplot(min.gr.var, max.gr.var, data = minmax.mat.sum, colour=names)
+print(ggplot(minmax.mat.sum,aes(min.gr.var, max.gr.var, colour=names)) + geom_point(alpha=0.6) + geom_abline(intercept = 0, slope = 1, colour = "red", size = 1.25))
+
+#test of uncertainty based on it
+```
+
+
+```{r}
+#test of uncertainty based on the results above 
+  if (test.new.re){
+    #choose the group size (from data or background)
+    if(is.null(n.check)){n.check <- 2e2}
+    #n.check <- 150
+    m.check <- floor(N/n.check)
+    dat2.seq.std <- dat2.seq-mean(dat2.seq)
+    dat2.meanseq.std <- get.meanseq(dat2.seq.std, n.guess = n.check)
+    dat4.seq.std <- dat2.seq.std^2
+    dat4.meanseq.std <- get.meanseq(dat4.seq.std, n.guess = n.check)
+    #estimate the sd bounds
+    sdl.est <- sqrt(min(dat4.meanseq.std)) #lower sd
+    sdr.est <- sqrt(max(dat4.meanseq.std)) #upper sd
+    #give the upper p-value for order statistics
+    p.maxmean <- uppvalue.maxmean(sqrt(n.check)*max(dat2.meanseq.std), sdl = sdl.est, sdr = sdr.est, m=m.check)
+    p.minmean <- uppvalue.minmean(sqrt(n.check)*min(dat2.meanseq.std), sdl = sdl.est, sdr = sdr.est, m=m.check)
+    cat(paste("Under the varphi-certainty null,","with group size = ", n.check,",", "\n", 
+                "the upper p-value of the max-mean stats is", format(p.maxmean, digits = 6), ";","\n", 
+                "the upper p-value of the min-mean stats is", format(p.minmean, digits = 6)),".", "\n")
+    p.new.re <- c(p.maxmean, p.minmean)
+    if (test.new.plot){
+    #set a reminder to the reader that test.new.re needs to be TRUE
+    #print a warning for this  
+    p.max.seq <- p.min.seq <- numeric(length(n.check.seq))
+    if(is.null(n.check.seq)){
+      n.check.seq <- seq(1e2, floor(N/10), 20)
+    }
+    for (i in seq_along(n.check.seq)){
+     n.check <- n.check.seq[i]
+     m.check <- floor(N/n.check)
+    #estimate the variance bounds
+    dat2.seq.std <- dat2.seq-mean(dat2.seq)
+    dat2.meanseq.std <- get.meanseq(dat2.seq.std, n.guess = n.check)
+    dat4.seq.std <- dat2.seq.std^2
+    dat4.meanseq.std <- get.meanseq(dat4.seq.std, n.guess = n.check)
+    sdl.est <- min(sqrt(dat4.meanseq.std)) #lower sd
+    sdr.est <- max(sqrt(dat4.meanseq.std)) #upper sd
+    #give the upper p-value for order statistics
+    p.maxmean <- uppvalue.maxmean(sqrt(n.check)*max(dat2.meanseq.std), sdl = sdl.est, sdr = sdr.est, m=m.check)
+    p.minmean <- uppvalue.minmean(sqrt(n.check)*min(dat2.meanseq.std), sdl = sdl.est, sdr = sdr.est, m=m.check)
+    p.max.seq[i] <- p.maxmean
+    p.min.seq[i] <- p.minmean
+}
+    p.maxmin.dat1 <- data.frame(groupsize.check = n.check.seq, 
+                           uppvalue.maxmean = p.max.seq, 
+                           uppvalue.minmean = p.min.seq)
+   p.maxmin.dat <- melt(p.maxmin.dat1, id.vars = "groupsize.check")
+   plot.test.obj <- ggplot(data = p.maxmin.dat, aes(x=groupsize.check, y=value, colour=variable)) + geom_line(aes(lty=variable)) +  geom_hline(yintercept = c(0.02,0.30), col = "brown", lty=2)
+   print(plot.test.obj)
+  }
+    #return(p.new.re) #return this pvalue vector under n.check
+  }
+```
+
+```{r}
+#sublinear L2
+#we need to detect the group length
+ind <- seq_len(N1)
+n <- 1e2
+ind.mat <- matrix(ind,ncol = n, byrow = TRUE)
+m <- nrow(ind.mat)
+dat <- cbind(y.seq, x.seq)
+beta.seq.G <- numeric(m)
+for (i in seq_len(m)){
+  dat.gr <- dat[ind.mat[i,], ]
+  y.gr <- dat.gr[,1]
+  x.gr <- dat.gr[,2]
+  re <- lm(y.gr~0+x.gr)
+  beta.seq.G[i] <- re$coefficients
+}
+```
+
+```{r}
+#sublinear L2
+#we need to detect the group length
+ind <- seq_len(N1)
+n <- N1/2
+ind.mat <- matrix(ind,ncol = n, byrow = TRUE)
+m <- nrow(ind.mat)
+dat <- cbind(y.seq, x.seq)
+beta.seq.G <- numeric(m)
+for (i in seq_len(m)){
+  dat.gr <- dat[ind.mat[i,], ]
+  y.gr <- dat.gr[,1]
+  x.gr <- dat.gr[,2]
+  re <- lm(y.gr~0+x.gr)
+  beta.seq.G[i] <- re$coefficients
+}
+```
+
+```{r}
+beta.seq.est <- rep(beta.seq.G, each=n)
+matplot(cbind(beta.seq, beta.seq.est), 
+        type = "l")
+#hist(beta.seq)
+(beta.int <- c(beta.low, beta.up)) #true
+(beta.G.int <- c(min(beta.seq.G), max(beta.seq.G))) #est
+```
+
+
+```{r}
+beta.seq.new <- rmaximal(N1,gr.len.mean = 1e2,
+                     min=beta.low,max=beta.up)
+ep.seq <- rnorm(N1, sd=sd.ep)
+x.seq.new <- rnorm(N1, mean=0.5, sd=1)
+y.seq.new <- beta.seq.new*x.seq.new + ep.seq
+```
+
+```{r}
+#the largest range
+tol <- 2*sd.ep
+y.pred.lm.low <- beta.lm*x.seq.new - tol
+y.pred.lm.up <- beta.lm*x.seq.new + tol
+#y.pred.lm.low <- as.numeric(x.seq.new>0) *beta.lm.int[1] + as.numeric(x.seq.new<=0) *beta.lm.int[2] -tol
+
+#y.pred.lm.up <- as.numeric(x.seq.new>0) *beta.lm.int[2] + as.numeric(x.seq.new<=0) *beta.lm.int[1] + tol
+
+y.pred.G.low <- as.numeric(x.seq.new>0) *beta.G.int[1] * x.seq.new + as.numeric(x.seq.new<=0) *beta.G.int[2] * x.seq.new -tol
+y.pred.G.up <- as.numeric(x.seq.new>0)*beta.G.int[2] *x.seq.new + as.numeric(x.seq.new<=0)*beta.G.int[1] * x.seq.new + tol
+```
+
+
+
+```{r}
+mean(y.pred.G.up>y.pred.lm.up)
+```
+
+```{r}
+mean(y.pred.G.low < y.pred.lm.low)
+```
+
+
+```{r}
+sum.re <- cbind(y.pred.lm.low-y.seq.new, y.pred.lm.up-y.seq.new, y.pred.G.low-y.seq.new, y.pred.G.up-y.seq.new)
+#matplot(sum.re[1:2e2,], type = "l", col = c(1,2,2,3,3))
+```
+
+```{r}
+sum.re2 <- cbind(y.seq.new, y.pred.G.low, y.pred.G.up, y.pred.lm.low, y.pred.lm.up)
+
+matplot(sum.re2[40:100,], type = "l",col=c(1,2,2,3,3))
+matplot(sum.re2[1:10,], type = "l",col=c(1,2,2,3,3))
+```
+
+
+```{r}
+mean(y.pred.lm.low<y.seq.new & 
+       y.pred.lm.up>y.seq.new)
+min(which(!(y.pred.lm.low<y.seq.new & 
+       y.pred.lm.up>y.seq.new)))
+mean(y.pred.G.low<y.seq.new & 
+       y.pred.G.up>y.seq.new)
+```
+
+```{r}
+mean(y.pred.G.low < y.pred.lm.low)
+```
+
+
+```{r}
+#sub.ind <- seq_len(1e2)
+#plot(y.seq[sub.ind], type = "l")
+hist(y.pred.lm.low-y.seq.new, breaks = "scott")
+abline(v=0, col=2)
+hist(y.pred.lm.up-y.seq.new, breaks = "scott")
+abline(v=0, col=2)
+hist(y.pred.G.low-y.seq.new, breaks = "scott")
+abline(v=0, col=2)
+hist(y.pred.G.up-y.seq.new, breaks = "scott")
+abline(v=0, col=2)
+```
+
+
+
+
+#import dataset 
+```{r}
+w.seq1 <- as.numeric(logReturn.ibm)*10
+#w.seq <- w.seq1 - mean(w.seq1) #mean-certainty, centralize it
+w.seq <- w.seq1
+```
+
+#initial analysis
+
+```{r}
+N <- length(w.seq)
+#y.seq <- rnorm(N)
+plot(w.seq[1:floor(N/4)], type="l")
+hist(w.seq, breaks = "scott")
+
+qqnorm(w.seq)
+qqline(w.seq, col=2) #it look like a t-distn
+```
+
+
+```{r}
+#create Ref seq
+#var.c <- mean(w.seq^2) #or var(w.seq)
+#v1.seq <- rnorm(length(w.seq)) * sqrt(var.c)
+#instead, fit a t distribution 
+library(MASS)
+x <- w.seq
+fit.re <- fitdistr(x, "t", start = list(m=mean(x),s=sd(x), df=3), lower=c(-1, 0.001,1))
+#fit.re$estimate 
+#density estimation
+#v1.seq <- rt(N, df=fit.re$estimate["df"]) * fit.re$estimate["s"] 
+#or use the iid ecdf as the ref data (non-parametric bootstrap)
+#search potential ref 
+v1.seq <- sample(w.seq, N, replace = TRUE)
+plot(v1.seq[1:floor(N/2)], type = "l")
+#if the independent assumption holds, we should get the similar result in max-mean comparison (more precisely, we actually care about whether it has distribution certainty)
+```
+
+```{r}
+qqplot(v1.seq, w.seq)
+abline(a=0, b=1, col=2)
+#qqline(w.seq, col=2)
+#hist(w.seq, breaks = "scott")
+#lines()
+```
+
+```{r}
+#group-boxplot 
+group.size <- 1e2
+N1 <- floor(N/group.size)*group.size
+w.seq.mat <- matrix(w.seq[1:N1], nrow = group.size, byrow = FALSE)
+boxplot(w.seq.mat, ylab="W.seq", main=paste("W.seq with group size = ", group.size))
+#v.seq.mat <- matrix(v.seq, nrow = group.size, byrow = FALSE)
+#boxplot(v.seq.mat, ylab="V", main="N(0,1)U[1,2]")
+v1.seq.mat <- matrix(v1.seq[1:N1], nrow = group.size, byrow = FALSE)
+boxplot(v1.seq.mat, ylab="Ref.seq", main=paste("Ref.seq with group size = ", group.size))
+```
+
+#Initial test of uncertainty 
+
+```{r}
+n.max <- floor(N/10)
+step <- 5
+n.seq <- seq(10,n.max,step)
+
+group.size <- n.seq[1]
+w.sq.meanseq <- get.meanseq(w.seq^2, n.guess = group.size)
+v1.sq.meanseq <- get.meanseq(v1.seq^2, n.guess = group.size)
+#design an automatical way to set the axis
+##decide the x range
+p1 <- hist(w.sq.meanseq, freq = FALSE, plot = FALSE, warn.unused = FALSE) #I do not want to show the plot
+#hist(w.sq.meanseq, freq = FALSE)
+p2 <- hist(v1.sq.meanseq, freq = FALSE, plot = FALSE, warn.unused = FALSE) 
+#hist(v1.sq.meanseq,freq = FALSE) 
+breaks.tol <- c(p1$breaks, p2$breaks)
+x.lim <- c(min(breaks.tol), max(breaks.tol))
+
+group.size <- n.seq[length(n.seq)]
+w.sq.meanseq <- get.meanseq(w.seq^2, n.guess = group.size)
+v1.sq.meanseq <- get.meanseq(v1.seq^2, n.guess = group.size)
+#design an automatical way to set the axis
+##decide the x range
+p1 <- hist(w.sq.meanseq, freq = FALSE, plot = FALSE, warn.unused = FALSE)
+#hist(w.sq.meanseq, freq = FALSE)
+p2 <- hist(v1.sq.meanseq, freq = FALSE, plot = FALSE, warn.unused = FALSE) 
+#hist(v1.sq.meanseq,freq = FALSE) 
+den.tol <- c(p1$density, p2$density)
+y.lim <- c(0, max(den.tol))
+
+for (group.size in n.seq){
+  w.sq.meanseq <- get.meanseq(w.seq^2, n.guess = group.size)
+  v1.sq.meanseq <- get.meanseq(v1.seq^2, n.guess = group.size)
+  p1 <- hist(w.sq.meanseq, plot = FALSE)
+  p2 <- hist(v1.sq.meanseq, plot = FALSE) 
+  #hist(w.sq.meanseq)
+  #hist(v1.sq.meanseq)
+  #p3 <- hist(v1.meanseq)
+  
+  plot(p1, col=rgb(0,0,1,1/4), freq = FALSE, xlim = x.lim, ylim = y.lim, border = rgb(0,0,1,1/4), main = paste("Group vars with n=", group.size))  
+  #"Sampling distn of sample variance: M[1,2] vs U[1,2]"
+  #, xlim=c(-1,1)*0.7
+  plot( p2, col=rgb(1,0,0,1/4), freq = FALSE, border = rgb(1,0,0,1/4),
+        add=TRUE) 
+  #abline(v=par.true^2, col="brown", lty=2, lwd=1.5)
+}
+```
+
+#Further test of uncertainty 
+```{r}
+re <- CentralGroup.est(w.seq^2, n.seq = n.seq, plot.ind = FALSE)
+re1 <- CentralGroup.est(v1.seq^2, n.seq = n.seq, plot.ind = FALSE)
+
+matplot(re$n.seq, cbind(re$est.all.mat[,c(1,2)], re1$est.all.mat[,c(1,2)]), type = "l", col = c(1,1,2,2))
+
+minmax.mat <- re$est.all.mat
+minmax.mat.ref <- re1$est.all.mat
+
+col.vec <- c(1,2,3,4)
+
+points.dat1 <- data.frame(from="Our Data", maxmin="min", col=col.vec[1], gr.var = minmax.mat[,1])
+points.dat2 <- data.frame(from="Our Data", maxmin="max", col=col.vec[2], gr.var = minmax.mat[,2])
+points.dat3 <- data.frame(from="Ref Data", maxmin="min", col=col.vec[3], gr.var = minmax.mat.ref[,1])
+points.dat4 <- data.frame(from="Ref Data", maxmin="max", col=col.vec[4], gr.var = minmax.mat.ref[,2])
+
+points.dat.our <- rbind(points.dat1, points.dat2)
+points.dat.ref <- rbind(points.dat3, points.dat4)
+
+points.dat <- rbind(points.dat1, points.dat2, points.dat3, points.dat4)
+
+from.num <- as.numeric(points.dat$from=="Ref Data") + 1
+
+#plot(factor(points.dat$from), points.dat$gr.var)
+#plot(from.num, points.dat$gr.var, type="p", col=points.dat$col)
+
+names <- paste(points.dat$from, points.dat$maxmin)
+library(ggplot2)
+qplot(factor(points.dat$from), points.dat$gr.var, colour=factor(names))
+
+par.true=NULL
+if(is.null(par.true)){
+  ggplot(points.dat.our, aes(x=gr.var, fill=maxmin)) + geom_histogram(position = "identity", alpha=0.8, bins = 40) + labs(title = "Our Data")
+} else {
+  ggplot(points.dat.our, aes(x=gr.var, fill=maxmin)) + geom_histogram(position = "identity", alpha=0.8, bins = 40) + geom_vline(xintercept=par.true, colour="brown")
+}
+
+#hist(minmax.mat[,1])
+#hist(points.dat[which(points),])
+ggplot(points.dat.ref, aes(x=gr.var, fill=maxmin)) + geom_histogram(position = "identity", alpha=0.8) + geom_vline(xintercept=var(v1.seq), colour="brown") 
+#add title 
+#hist(minmax.mat[,1])
+#hist(points.dat[which(points),])
+```
+
+```{r}
+#explore the clustering of the max and min group.var
+#max-mean-clustering plot 
+minmax.mat.sum1 <- data.frame(min.gr.var = minmax.mat[,1], max.gr.var= minmax.mat[,2], names=factor("Our Data"))
+minmax.mat.sum2 <- data.frame(min.gr.var = minmax.mat.ref[,1], max.gr.var= minmax.mat.ref[,2], names=factor("Ref Data"))
+
+minmax.mat.sum <- rbind(minmax.mat.sum1, minmax.mat.sum2)
+
+#qplot(min.gr.var, max.gr.var, data = minmax.mat.sum, colour=names)
+ggplot(minmax.mat.sum,aes(min.gr.var, max.gr.var, colour=names)) + geom_point() + geom_abline(intercept = 0, slope = 1, colour = "red")
+```
+
+##Further Discussion on nl iid
+$$
+P_\theta = 
+$$
+
+```{r}
+#chain structure
+```
+
+```{r}
+a <- 0.01; b <- 10
+S <- function(arg,low=a,up=b){
+  arg*(b-a)+a
+}
+
+rP <- function(arg){
+  S(rbeta(1, shape1 = runif(1,a,b), shape2 = arg))
+}
+#very weak dependence
+rQ <- function(arg){
+  S(rbeta(1, shape1 = arg, shape2 = runif(1,a,b)))
+}
+#blocking design 
+#Markov chain design (put in dependence structure)
+
+```
+
+
+```{r}
+#investigate the cycle structure
+
+N <- 1e4
+theta.seq <- alpha.seq <- numeric(N+1)
+x.seq <- numeric(N)
+s1 <- 1234
+s2 <- 2718
+set.seed(s1)
+theta.seq[1] <- runif(1,a,b)
+set.seed(s2)
+alpha.seq[1] <- runif(1,a,b)
+#
+for (i in seq_len(N)){
+  x.seq[i] <- rP(theta.seq[i])
+  theta.seq[i+1] <- rP(alpha.seq[i])
+  alpha.seq[i+1] <- rQ(theta.seq[i])
+}
+plot(theta.seq[1:5e2], type = "l")
+plot(alpha.seq[1:5e2], type = "l")
+ind.mat <- matrix(seq_len(N), ncol=5e2, byrow = TRUE)
+for (i in seq_len(nrow(ind.mat))){
+  hist(x.seq[ind.mat[i,]], ylim = c(0,80))
+}
+#hist(x.seq[ind.mat[1,]])
+#hist(x.seq[ind.mat[2,]])
+
+ks.test(x.seq[ind.mat[1,]], x.seq[ind.mat[7,]])
+```
+
+```{r}
+#We can also mimic the behaviour of the real dataset. 
+```
+
+
+##Further Check on the power property
+###function:Gheat.itn.sol.bern
+```{r}
+#spline functions or interpolation design
+#candidates for splinefun.my
+splinefun.my <- function(x.seq, y.seq){
+  splinefun(x.seq, y.seq, method = "fmm")
+}
+
+splinefun.my.linear <- function(x.seq, y.seq){
+  approxfun(x.seq, y.seq, method = "linear")
+}
+
+splinefun.my.mix <- function(x.seq, y.seq){
+  ind1 <- which(x.seq <= lp)
+  ind2 <- which(lp < x.seq & x.seq < rp)
+  ind3 <- which(x.seq >=rp)
+  sp1 <- splinefun(x.seq[ind1], y.seq[ind1], method = "fmm")
+  sp2 <- splinefun(x.seq[ind2], y.seq[ind2], method = "fmm")
+  sp3 <- splinefun(x.seq[ind3], y.seq[ind3], method = "fmm")
+  re <- function(x){
+    (x <= lp) * sp1(x) 
+    + (lp < x & x < rp) * sp2(x)
+    + (x >=rp) * sp3(x)
+  }
+  re
+}
+
+```
+
+```{r}
+#optimization function 
+#candidates for opt.my
+#continous domain
+opt.my <- optim
+#trinomial tree
+opt.my.tri <- function(value.fun, lower, upper){
+  tri.seq <- c(lower, (lower+upper)/2, upper)
+  val.seq <- sapply(tri.seq, value.fun)
+  value <- max(val.seq)
+  par <- tri.seq[which.max(val.seq)]
+  list(value=value, par=par)
+}
+#max of the three points 
+```
+
+```{r}
+#gives the complete solution for u(t,x)
+#using another semi-G-norm distribution
+Gexpt.itn.sol.bern <- function(varphi.org, n=20, 
+                          T1=1, a=1, b=2,
+                          x.step = .02,
+                          x.range.scale = 2, 
+                          v.opt.mat=NULL, varphi.list=NULL,
+                          splinefun.test = splinefun.my,
+                          opt.test = opt.my.tri, 
+                          csv.name="test", save.ind=FALSE){
+  #MC.size = 2e3, 
+  #"fmm" may not be good at extrapolation; but I checked that it works for x^n
+  varphi.list <- vector("list", n+1)
+  varphi.list[[1]] <- varphi.org
+  x.min <- -x.range.scale*b; x.max <- x.range.scale*b; 
+  x.seq <- seq(x.min, x.max, x.step)
+  y.seq <- numeric(length(x.seq))
+  varphi.mat<- matrix(NA,nrow = length(x.seq), ncol = n+1)
+  varphi.mat[,1] <- varphi.list[[1]](x.seq) 
+  #save each v.opt
+  v.opt.mat <- matrix(NA, nrow = (n-1)+2, ncol = length(x.seq)+2) 
+  #also save the optimal v for the last x and last iteration, 
+  #although it may not be very useful
+  v.opt.mat[,1] <- b
+    for (i in seq_len(n)){
+      #the iteration step i
+      #cat(paste("i =", i,"\n"))
+      temp <- varphi.list[[i]]
+      for (j in seq_along(x.seq)){
+        #the jth value of x.seq 
+        #v.init <- v.opt.mat[i,j]
+        x1 <- x.seq[j]
+        expt.v.fn <- function(v){
+          (1/2)*((temp(x1) + temp(x1+v/sqrt(n)))) 
+          #this an important change
+          #-(1/2)*((temp(x1) + temp(x1+v/sqrt(n)))) 
+        }
+        #opt.list <- opt.my(v.init, expt.v.fn, method = "L-BFGS-B", lower = a, upper = b)
+        #y.seq[j] <- opt.list$value * (-1)
+        #v.opt.mat[i,j]<- v.opt.mat[i,(j+1)] <- opt.list$par
+        opt.list <- opt.test(expt.v.fn, lower=a, upper=b)
+        y.seq[j] <- opt.list$value
+        v.opt.mat[i,j] <- opt.list$par
+        #update the v.opt at (i,j), guess the same for (i,j+1)
+      }
+      varphi.mat[,(i+1)] <- y.seq
+      varphi.list[[i+1]]<- splinefun.test(x.seq, y.seq)
+    }
+    if(save.ind){
+      #file.name <- paste0(csv.name, format(Sys.time(), "%Y-%m%d-%H%M%S"), ".csv")
+      file.name <- paste0(csv.name, ".csv")
+      write.csv(cbind(x.seq, varphi.mat), file = file.name) 
+    }
+    u.tx <- varphi.list[[n+1]]
+    value <- varphi.list[[n+1]](0)
+    return(list(value=value,
+                varphi.mat = varphi.mat, 
+                varphi.list = varphi.list,
+                v.opt.mat = v.opt.mat,
+                x.seq=x.seq,
+                u.tx = u.tx))
+}
+```
+
+We may add artificial boundary conditions: for indicator function $\varphi(x)=1_{x<b}$,
+$$
+u(t,+\infty) = 1,\text{ and }u(t,-\infty) = 0.
+$$
+
+```{r}
+Gexpt.itn.sol.bern2 <- function(varphi.org, n=20, 
+                          T1=1, a=0.5, b=2,
+                          sig1 = 1, sig2 = 2,
+                          x.step = .02,
+                          x.range.scale = 3, 
+                          v.opt.mat=NULL, varphi.list=NULL,
+                          splinefun.test = splinefun.my,
+                          opt.test = opt.my.tri, 
+                          csv.name="test", save.ind=FALSE){
+  #MC.size = 2e3, 
+  #"fmm" may not be good at extrapolation; but I checked that it works for x^n
+  #add artificial boundary condition
+  varphi.list <- vector("list", n+1)
+  varphi.list[[1]] <- varphi.org
+  x.min <- -x.range.scale*b; x.max <- x.range.scale*b; 
+  x.seq <- seq(x.min, x.max, x.step)
+  y.seq <- numeric(length(x.seq))
+  varphi.mat<- matrix(NA,nrow = length(x.seq), ncol = n+1)
+  varphi.mat[,1] <- varphi.list[[1]](x.seq) 
+  #save each v.opt
+  v.opt.mat <- matrix(NA, nrow = (n-1)+2, ncol = length(x.seq)+2) 
+  #also save the optimal v for the last x and last iteration, 
+  #although it may not be very useful
+  v.opt.mat[,1] <- b
+    for (i in seq_len(n)){
+      #the iteration step i
+      #cat(paste("i =", i,"\n"))
+      temp <- varphi.list[[i]]
+      for (j in seq_along(x.seq)){
+        #the jth value of x.seq 
+        #v.init <- v.opt.mat[i,j]
+        x1 <- x.seq[j]
+        expt.v.fn <- function(v){
+          (1/2)*((temp(x1) + temp(x1+v/sqrt(n)))) 
+          #for each m
+          #compute the function under optimized v. 
+          #check it in numerical sense
+          #this an important change
+          #-(1/2)*((temp(x1) + temp(x1+v/sqrt(n)))) 
+        }
+        #opt.list <- opt.my(v.init, expt.v.fn, method = "L-BFGS-B", lower = a, upper = b)
+        #y.seq[j] <- opt.list$value * (-1)
+        #v.opt.mat[i,j]<- v.opt.mat[i,(j+1)] <- opt.list$par
+        opt.list <- opt.test(expt.v.fn, lower=a, upper=b)
+        y.seq[j] <- opt.list$value
+        v.opt.mat[i,j] <- opt.list$par
+        #update the v.opt at (i,j), guess the same for (i,j+1)
+      }
+      varphi.mat[,(i+1)] <- y.seq
+      varphi.list[[i+1]]<- splinefun.test(x.seq, y.seq)
+    }
+    if(save.ind){
+      #file.name <- paste0(csv.name, format(Sys.time(), "%Y-%m%d-%H%M%S"), ".csv")
+      file.name <- paste0(csv.name, ".csv")
+      write.csv(cbind(x.seq, varphi.mat), file = file.name) 
+    }
+    u.tx <- varphi.list[[n+1]]
+    value <- varphi.list[[n+1]](0)
+    return(list(value=value,
+                varphi.mat = varphi.mat, 
+                varphi.list = varphi.list,
+                v.opt.mat = v.opt.mat,
+                x.seq=x.seq,
+                u.tx = u.tx))
+}
+```
+
+
+
+```{r}
+#further give the power property
+#decide b0890
+upprob.alter <- function(pr=0.6, pl=0.5, b0=0.5, gr.size=10, gr.num=2){
+  varphi1 <- function(x) -as.numeric(x<=b0)
+  #varphi1 <- function(x) as.numeric(x<=(-b0))
+  re <- Gexpt.itn.sol.bern(varphi.org = varphi1, n=gr.size, a=pl, b=pr)
+  upcdf.val <- re$value
+  #1-(1-upcdf.val)^gr.num
+  #directly compute the upcdf of order stat
+  m <- gr.num
+  1-(-upcdf.val)^m #1-v(X<b)^m
+  #1-(1-upcdf.val)^m
+}
+
+lowprob.alter <- function(pr=0.6, pl=0.5, b0=0.5, gr.size=10, gr.num=2){
+  varphi1 <- function(x) as.numeric(x<=b0)
+  #varphi1 <- function(x) as.numeric(x<=(-b0))
+  re <- Gexpt.itn.sol.bern(varphi.org = varphi1, n=gr.size, a=pl, b=pr)
+  upcdf.val <- re$value
+  #1-(1-upcdf.val)^gr.num
+  #directly compute the upcdf of order stat
+  m <- gr.num
+  #1-(-upcdf.val)^m #1-v(X<b)^m
+  (1-upcdf.val)^m
+  #1-(1-upcdf.val)^m
+}
+
+#pr.seq <- seq(0.7,2,0.1)
+pr.seq <- seq(0.55,1.4,0.05)
+upprob.seq <- sapply(pr.seq, function(x) upprob.alter(pr=x))
+plot(pr.seq, upprob.seq, type = "l")
+plot(pr.seq, upprob.seq)
+
+pr.seq <- seq(0.55,1.4,0.05)
+lowprob.seq <- sapply(pr.seq, function(x) lowprob.alter(pr=x))
+plot(pr.seq, lowprob.seq, type = "l")
+plot(pr.seq, lowprob.seq)
+
+#check the results in theory 
+
+#upprob.alter(1)
+
+#if n,m is large, the floating error problem will kick in
+#computation is not precise when pr is very close to pl
+
+#plot of the upprob.alter vs b0 (the cdf)
+
+#pl.seq <- seq(0.1,0.8,.02)
+#upprob.seq <- sapply(pr.seq, function(x) upprob.alter(pr=x))
+#plot(pr.seq, upprob.seq, type = "l")
+
+n.seq <- seq(50, 1e3, 50)
+upprob.seq.n <- sapply(n.seq, function(n) upprob.alter(gr.size = n))
+plot(n.seq, upprob.seq.n, type = "l")
+plot(n.seq, upprob.seq.n)
+ind <- which(n.seq>=100)
+plot(n.seq[ind], upprob.seq.n[ind], type = "l")
+#the fluctuation comes from the computational error
+#we may have the problem of precision when n is small
+
+upprob.alter(pr=0.6)
+
+#upprob.alter(gr.size = 50)
+
+b0 <- 1
+varphi1 <- function(x) -as.numeric(x<=b0)
+pl <- 0.3;
+pr <- 1.5;
+re <- Gexpt.itn.sol.bern(varphi.org = varphi1, n=50, a=pl, b=pr)
+#check this function 
+-re$value
+#the limiting distribution is no longer the G-normal with zero mean
+matplot(re$x.seq, re$varphi.mat, type = "l")
+```
+
+
+```{r}
+#check the power property for special situations.
+
+```
+
+
