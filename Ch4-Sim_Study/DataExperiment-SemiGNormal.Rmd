@@ -1,0 +1,3441 @@
+---
+title: "Data Experiments in Semi-G-normal Paper"
+author: "Yifan Li"
+date: "16/08/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preparations
+
+```{r message=FALSE, warning=FALSE}
+setwd("../Preparation")
+source("Basic-setup.R")
+source("DataExperiment-SemiGNormal-Pre.R")
+source("GframeStatsPoint-full.R")
+source("GframeIntvl.R")
+source("functions-choose-gr-size.R")
+```
+
+# 2-Vol-RS Ex (short seq)
+
+(Two-volatility-regime-switching Example)
+
+Our focus is on the uncertainty in the model specification.
+
+Let me use this artificial example to illustrate the point model uncertainty is still needed to be considered (and cannot be ignored) even under a simple two-volatility-regime setup and partially known structural information. 
+
+Consider a temporal data sequence which go through two volatility status from time $0$ to time $1$. 
+
+Consider a log return sequence going through two financial market status. 
+
+Suppose we are provided with 50 replications of the log return sequence from time 0 to 1, without directly looking at the empirical distribution, can we make a inference on the skewness parameter? 
+
+(How to appropriate specify the model here is the key, but we are still lack of information at this stage; can we at least have a control on the possible future scenarios?)
+
+```{r}
+#setup global parameters
+set.sd0 <- c(0.5, 1.8)
+n.t <- 1e3 #for one scenario, n.t is the number of equally discretized intervals
+n <- n.t 
+T1 <- 1
+```
+
+```{r}
+#approximately simulate the standard BM
+#plot the example
+set.seed(1)
+#simulate the classical BM W_i
+dw.sc <- ts(rnorm(n)*sqrt(T1/n), start = 0, end = T1, freq = n-1)
+#to get a time series with 1000 points
+w.seq <- ts(cumsum(dw.sc), start = 0, end = T1, freq = n-1)
+#w.seq[n/2]
+plot(dw.sc)
+plot(w.seq)
+#the variance will have persistence in each period.
+```
+
+```{r}
+#simulate the sig.seq 
+set.sd0 <- c(0.5,1.8)
+set.sd <- set.sd0
+z.seq1 <- numeric(n)
+#sample one scenario
+#ind.scene <- sample(c(1,2), 3, replace = TRUE)
+ind.scene <- c(1,2,1)
+#ind.scene <- c(1,1,2)
+sd.vec <- set.sd[ind.scene]
+
+z.seq1[seq_len(n/2)] <- sd.vec[1]
+#x.seq[seq_len(n/2)] <- z.seq1[seq_len(n/2)]*w.seq[seq_len(n/2)]
+
+#s.seq <- cumsum(x.seq)
+
+z.seq1[-seq_len(n/2)] <- ifelse(w.seq[n/2]>0, 
+                                sd.vec[2], sd.vec[3])
+
+z.seq <- ts(z.seq1, start = 0, end = T1, freq = n-1)
+plot(z.seq)
+#log return sequence 
+x.seq <- dw.sc*z.seq
+#log price sequence
+log.S.seq <- ts(cumsum(x.seq), start = 0, end = T1, freq = n-1)
+#stock price sequence
+S.seq <- exp(log.S.seq)
+
+
+plot(x.seq, main = "Plot of x.seq")
+#abline(v = 0.5, col = "gray", lty = 2)
+plot(x.seq^2, type = "l", main = "Plot of x.seq^2")
+
+plot(x.seq^3, type = "l", main = "Plot of x.seq^3")
+
+x.seq.num <- as.numeric(x.seq)
+
+cumavg <- function(x){
+  cumsum(x)/seq_along(x)
+}
+
+#plot(cumavg(x.seq^3), type = "l")
+plot(cumsum(x.seq^3), type = "l")
+#also plot the previous example on W1*W2^2 
+
+plot(log.S.seq)
+#plot(S.seq)
+#varphi <- function(x) x^3
+
+#plot(log.S.seq^3/seq_len(n))
+#save images 
+```
+
+### EDA
+
+(Exploratory data analysis)
+
+```{r}
+#check the normality of the whole sequence
+qqnorm(x.seq)
+qqline(x.seq, col = 2)
+
+y.seq <- log.S.seq <- ts(cumsum(x.seq), start = 0, end = T1, freq = n-1)
+
+#par
+#automatic 
+op <- par(no.readonly = TRUE)
+par(mfrow=c(2,2))
+plot(y.seq, main = "Plot of S(t)")
+abline(v=1/2, col = "brown", lty = 2)
+plot(x.seq, main = "Plot of X(t)")
+abline(v=1/2, col = "brown", lty = 2)
+qqnorm(x.seq[seq_len(n/2)], main = "Normality of the first half")
+qqline(x.seq[seq_len(n/2)], col = 2)
+qqnorm(x.seq[-seq_len(n/2)], main = "Normality of the second half")
+qqline(x.seq[-seq_len(n/2)], col = 2)
+par(op)
+
+#check the auto correlations 
+acf(x.seq)
+#acf(x.seq^2)
+acf(abs(x.seq))
+acf(x.seq.num^2)
+acf(abs(x.seq.num))
+
+
+```
+
+
+In this artificial example, the intuition here is that we may be uncertain about the model itself because it is essentially hard to distinguish these models (whether the state space is the volatility itself or the stock price) at early stage (where we are lack of information on the underlying structure.)
+
+We do have 50 replications of the whole procedure (using the same simulation scheme). 
+
+```{r}
+plot(rsemiGnorm.bisum.seqind(1e3, ind.scene = c(1,2,1)), ylim = 0.2*c(-1,1), ylab="value", main = "x.seq")
+```
+
+
+```{r}
+#simulate this scenario m times
+#just like we look at the behaviour of the data sequence periodically
+set.seed(314)
+m <- 5e2
+n <- n.t <- 1e3
+#T1 <- 1
+#set.sd <- c(1, 2)
+#set.sd <- c(0.5, 1.8)
+#ind.scene <- c(1,2,1)
+#sd.vec <- set.sd[ind.scene]
+
+x.mat <- replicate(m, {
+  rsemiGnorm.bisum.seqind(n = n, ind.scene = c(1,2,1), set.sd = c(0.5, 1.8), T1 = 1)
+})
+
+#matplot(x.mat[,1:10], type = "l")
+t.seq <- seq(0,1, length.out = n)
+set.seed(123)
+ind.seq <- sample(seq_len(m), 20)
+for (i in ind.seq){
+  plot(t.seq, x.mat[,i], type = "l", ylim = 0.2*c(-1,1))
+}
+ 
+l <- 10 #number of period to check
+t.seq <- seq(0, l, length.out = n*l)
+x.seq <- as.vector(x.mat[,seq_len(l)])
+plot(t.seq, x.seq, type = "l", main = paste("Plot of x with replication times = ", l))
+#it does have some sudden market status change
+abline(v = seq_len(l), col = "gray", lty = 2)
+#as.vector(matrix(1:6, 2, 3))
+```
+
+```{r}
+x.seq <- as.vector(x.mat[,seq_len(l)])
+plot(t.seq, x.seq^2, type = "l", main = paste("Plot of x^2 with replication times = ", l))
+#it does have some sudden market status change
+abline(v = seq_len(l), col = "gray", lty = 2)
+```
+
+```{r}
+#if we simply look at the distribution at each time interval, 
+qqnorm(x.mat[seq_len(n/2), 1])
+qqline(x.mat[seq_len(n/2), 1], col=2)
+```
+
+```{r}
+qqnorm(x.mat[-seq_len(n/2), 1])
+qqline(x.mat[-seq_len(n/2), 1], col=2)
+#it looks very similar to normal distribution
+```
+
+```{r}
+qqnorm(x.mat[,1])
+qqline(x.mat[,1], col=2)
+```
+
+The distribution in each half period is normal. 
+The distribution of the mixed sample in two periods is also close to normal distribution. 
+
+If we directly fit a regime switching model, it will tell us. 
+```{r}
+#design this volatility-regime examples
+
+#estimate the volatility in each time period 
+#plot the estimated volatility 
+
+get.var <- function(x){
+  ind1 <- seq_len(n/2)
+  x.sub1 <- x[ind1]
+  x.sub2 <- x[-ind1]
+  2*c(sum(x.sub1^2), sum(x.sub2^2))
+}
+
+#get.var(x.mat[,3])
+
+#mean(x.mat[,1]^2)
+
+#set.var <- set.sd^2
+
+var.vec <- apply(x.mat, 2, get.var)
+
+sd.vec <- sqrt(var.vec)
+
+sd.mat <- apply(sd.vec, 2, function(z){
+  rep(z, each = n/2)
+})
+
+matplot(sd.mat, type = "l")
+
+sd.low <- set.sd0[1]
+sd.high <- set.sd0[2]
+
+var.disc<- function(var.est, alpha=0.1){
+  #crit.val <- qchisq(1-alpha, n/2, lower.tail = TRUE)
+  #thres <- (2*sd.low^2)/n * crit.val
+  thres <- (sd.low^2+sd.high^2)/2
+  ifelse(var.est > thres, sd.high, sd.low)
+}
+
+thres <- (sd.low^2+sd.high^2)/2
+sqrt(mean(var.vec[var.vec >= thres]))
+sqrt(mean(var.vec[var.vec < thres]))
+
+var.identify <- apply(var.vec, 1, var.disc)
+
+table(var.identify[,2])
+
+#hist(var.vec[1,], xlim = c(0,5))
+#hist(var.vec[2,], xlim = c(0,5))
+
+#approximate the switching probability 
+
+#get 1,1 
+#get 1,2 
+
+#check the distribution of the summation 
+#check the skewness
+
+#distinguish between the low and high volatility regime 
+
+#use confidence interval
+
+#sig.low and sig.up 
+#using confidence interval 
+
+#given the low vol
+#check how many times we have high vol
+
+#given the high vol
+#check how many times we have low vol
+
+#group the data sequence
+#then plot the local volatility
+#or we can also use the moving average method
+
+#install.packages("pracma")
+
+if(!require("pracma")) install.packages("pracma") 
+library(pracma)
+
+x <- x.mat[,10]*sqrt(n)
+x <- x.seq.num*sqrt(n)
+sig2.seq <- movavg(x^2, n = 100, type = "t")
+#sig2.seq
+#plot(sig2.seq, type = "l")
+#possible future scenarios. 
+
+get.sig2.movavg <- function(x.old){
+  x <- x.old * sqrt(n)
+  sig2.seq <- movavg(x^2, n = 200, type = "t")
+  sig2.seq
+}
+sig2.mat <- apply(x.mat, 2, get.sig2.movavg)
+matplot(sig2.mat, type = "l", main = "Moving Average of the squared data")
+#window size = 200
+```
+
+This kind of data generation scheme cannot be captured by a volatility regime switching model. 
+
+(also show the details about this statement.)
+
+(if we use different simulation schmeme, it has similar regime switching results but they have significantly different skewness.) 
+
+### Check skewness
+
+```{r}
+log.S.seq <- apply(x.mat, 2, sum)
+#under a classical regime switching model, it should be symmetric
+#but actually it does not
+mean(log.S.seq^3)
+hist(log.S.seq)
+#hist(log.S.seq)
+#check the skewness
+
+#plot the SLLN
+
+#we can also replicate this estimation to get the standard error
+#we can also do the bootstrap
+
+log.S.seq <- apply(x.mat[,1:50], 2, sum)
+#under a classical regime switching model, it should be symmetric
+#but actually it does not
+mean(log.S.seq^3)
+hist(log.S.seq)
+#we can do the boostrap
+#to get the SE
+```
+
+### functions: get.var
+
+```{r}
+get.var <- function(x){
+  ind1 <- seq_len(n/2)
+  x.sub1 <- x[ind1]
+  x.sub2 <- x[-ind1]
+  2*c(sum(x.sub1^2), sum(x.sub2^2))
+}
+
+get.var.table <- function(x.mat, set.sd = c(0.5, 1.8)){
+  var.vec <- apply(x.mat, 2, get.var)
+  #sd.vec <- sqrt(var.vec)
+  sd.low <- set.sd[1]
+  sd.high <- set.sd[2]
+  var.disc<- function(var.est, alpha=0.1){
+  thres <- (sd.low^2+sd.high^2)/2
+  ifelse(var.est > thres, sd.high, sd.low)
+}
+  var.identify <- apply(var.vec, 1, var.disc)
+  table(var.identify[,2])
+}
+
+```
+
+```{r}
+var.table <- get.var.table(x.mat = x.mat)
+var.table[2]/m
+
+sd.mat <- apply(sd.vec, 2, function(z){
+  rep(z, each = n/2)
+})
+
+matplot(sd.mat, type = "l")
+
+sd.low <- set.sd[1]
+sd.high <- set.sd[2]
+
+var.identify <- apply(var.vec, 1, var.disc)
+
+table(var.identify[,2])
+
+```
+
+```{r}
+skew.est.seq.G <- replicate(5e2, {
+  x.mat <- replicate(m, {
+  rsemiGnorm.bisum.seqind(n = n, ind.scene = c(1,2,1), set.sd = c(0.5, 1.8), T1 = 1)
+})
+  log.S.seq <- apply(x.mat, 2, sum)
+  #under a classical regime switching model, it should be symmetric
+  #but actually it does not
+  var.table <- get.var.table(x.mat = x.mat)
+  p.est <- var.table[2]/m
+  mean.est <- mean(log.S.seq)
+  var.est <- mean(log.S.seq^2)
+  skew.est <- mean(log.S.seq^3)
+  c(p.est, skew.est, var.est, mean.est)
+})
+
+```
+
+```{r}
+hist(skew.est.seq.G[1,], main = "p.est")
+hist(skew.est.seq.G[2,], main = "skewness.est")
+#overlay the skewness.est distributions together
+#also overlay the distribution of the S1.seq itself.
+```
+
+```{r}
+skew.est.seq.G2 <- replicate(5e2, {
+  x.mat2 <- replicate(m, {
+  rsemiGnorm.bisum.seqind(n = n, ind.scene = c(1,1,2), set.sd = c(0.5, 1.8), T1 = 1)
+})
+  log.S.seq2 <- apply(x.mat2, 2, sum)
+  #under a classical regime switching model, it should be symmetric
+  #but actually it does not
+  var.table <- get.var.table(x.mat = x.mat2)
+  p.est <- var.table[2]/m
+  mean.est <- mean(log.S.seq2)
+  var.est <- mean(log.S.seq2^2)
+  skew.est <- mean(log.S.seq2^3)
+  c(p.est, skew.est, var.est, mean.est)
+})
+
+
+hist(skew.est.seq.G2[1,], main = "p.est")
+hist(skew.est.seq.G2[2,], main = "skewness.est")
+```
+
+
+```{r}
+#mixture model 
+#with low and high vol specified with the same chances
+#simulation based on the volatility regime switching
+#set.seed(314)
+m <- 5e2
+n <- n.t <- 1e3
+T1 <- 1
+set.sd <- c(1, 2)
+ind.scene <- c(1,2,1)
+sd.vec <- set.sd[ind.scene]
+z.seq1 <- numeric(n)
+
+x.mat.cl <- replicate(m, {
+#simulate the classical BM W_i
+dw.sc <- ts(rnorm(n)*sqrt(T1/n), start = 0, end = T1, freq = n-1)
+#to get a time series with 1000 points
+w.seq <- ts(cumsum(dw.sc), start = 0, end = T1, freq = n-1)
+#simulate the sig.seq
+z.seq1[seq_len(n/2)] <- sd.vec[1]
+z.seq1[-seq_len(n/2)] <- rbinom(1,1,1/2)*(sd.vec[3]-sd.vec[2])
++ sd.vec[2]
+#z.seq1[-seq_len(n/2)] <- ifelse(runif(1)>1/2, 
+#                               sd.vec[2], sd.vec[3])
+z.seq <- ts(z.seq1, start = 0, end = T1, freq = n-1)
+#log return sequence 
+x.seq <- dw.sc*z.seq
+x.seq
+}
+)
+
+#then let us check the skewness
+#it should have certain skewness zero. 
+
+#but in fact, it has uncertain skewness. 
+#it may have positive or negative skewness. 
+
+```
+
+```{r}
+log.S.seq1 <- apply(x.mat.cl, 2, sum)
+#under a classical regime switching model, it should be symmetric
+#double check this 
+mean(log.S.seq1^3)
+hist(log.S.seq1)
+#this will give a symmetric distribution 
+#with skewness 0 
+```
+
+
+```{r}
+#double check this simulation scheme
+#also check the sampling distribution of the variance estimator in theory
+
+T1 <- 1
+set.sd <- c(0.5, 1.8)
+ind.scene <- c(1,2,1)
+sd.vec <- set.sd[ind.scene]
+z.seq1 <- numeric(n)
+n <- 1e3
+
+skew.est.seq.mix <- replicate(5e2, {
+x.mat.cl <- replicate(m, {
+#simulate the classical BM W_i
+dw.sc <- ts(rnorm(n)*sqrt(T1/n), start = 0, end = T1, freq = n-1)
+#to get a time series with 1000 points
+w.seq <- ts(cumsum(dw.sc), start = 0, end = T1, freq = n-1)
+#simulate the sig.seq
+z.seq1[seq_len(n/2)] <- sd.vec[1]
+z.seq1[-seq_len(n/2)] <- rbinom(1,1,1/2)*(sd.vec[3]-sd.vec[2])
++ sd.vec[2]
+#z.seq1[-seq_len(n/2)] <- ifelse(runif(1)>1/2, 
+#                               sd.vec[2], sd.vec[3])
+z.seq <- ts(z.seq1, start = 0, end = T1, freq = n-1)
+#log return sequence 
+x.seq <- dw.sc*z.seq
+x.seq
+})
+
+log.S.seq.cl <- apply(x.mat.cl, 2, sum)
+  #under a classical regime switching model, it should be symmetric
+  #but actually it does not
+  var.table <- get.var.table(x.mat = x.mat.cl, set.sd = c(0.5, 1.8))
+  p.est <- var.table[2]/m
+  mean.est <- mean(log.S.seq.cl)
+  var.est <- mean(log.S.seq.cl^2)
+  skew.est <- mean(log.S.seq.cl^3)
+  c(p.est, skew.est, var.est, mean.est)
+})
+```
+
+```{r}
+#also save the results
+hist(skew.est.seq.mix[1,], main = "p.est")
+hist(skew.est.seq.mix[2,], main = "skewness.est")
+```
+
+### Summary Plots
+
+```{r}
+set.sd0 <- c(0.5, 1.8)
+#sdl0 <- set.sd0[1]
+#sdr0 <- set.sd0[2]
+ind.scene0 <- c(1,2,1)
+m <- 1e3
+#produce the terminal distribution
+x.mat.cl <- replicate(m, {
+#simulate the classical BM W_i
+x.seq1 <- rnormmix.bisum(1e3, ind.scene0, 
+                         set.sd = set.sd0)
+x.seq1
+})
+
+S1.seq.cl <- apply(x.mat.cl, 2, sum)
+hist(S1.seq.cl)
+moment2 <- (set.sd0[ind.scene0[1]]^2 + (set.sd0[ind.scene0[2]]^2 + set.sd0[ind.scene0[3]]^2)/2)/2 
+mean(S1.seq.cl^2)
+moment2
+
+#abline(v = moment2)
+  #under a classical regime switching model, it should be symmetric
+  #but actually it does not
+  #var.table <- get.var.table(x.mat = x.mat.cl, set.sd = c(0.5, 1.8))
+  #p.est <- var.table[2]/m
+  #skew.est <- mean(log.S.seq.cl^3)
+  #c(p.est, skew.est)
+
+```
+
+
+```{r}
+set.sd0 <- c(0.5, 1.8)
+#sdl0 <- set.sd0[1]
+#sdr0 <- set.sd0[2]
+ind.scene0 <- c(1,2,1)
+m <- 1e3
+est.dat.mix <- replicate(1e2, {
+#produce the terminal distribution
+x.mat.cl <- replicate(m, {
+#simulate the classical BM W_i
+x.seq1 <- rnormmix.bisum(1e3, ind.scene0, 
+                         set.sd = set.sd0)
+x.seq1
+})
+S1.seq.cl <- apply(x.mat.cl, 2, sum)
+c(mean(S1.seq.cl), mean(S1.seq.cl^2), mean(S1.seq.cl^3))
+})
+
+hist(est.dat.mix[2, ])
+abline(v = moment2, col = 2)
+```
+
+```{r}
+x.mat.G1 <- replicate(m, {
+#simulate the classical BM W_i
+x.seq1 <- rsemiGnorm.bisum.seqind(1e3, c(1,2,1), set.sd = set.sd0)
+x.seq1
+})
+
+S1.seq.G1 <- apply(x.mat.G1, 2, sum)
+hist(S1.seq.G1)
+mean(S1.seq.G1^2)
+moment2
+```
+
+```{r}
+est.dat.G1 <- replicate(1e2, {
+  x.mat.G1 <- replicate(m, {
+#simulate the classical BM W_i
+x.seq1 <- rsemiGnorm.bisum.seqind(1e3, c(1,2,1), set.sd = set.sd0)
+x.seq1
+})
+  S1.seq.G1 <- apply(x.mat.G1, 2, sum)
+  c( mean(S1.seq.G1), mean(S1.seq.G1^2), mean(S1.seq.G1^3))
+})
+
+hist(est.dat.G1[2, ])
+abline(v = moment2, col = 2)
+```
+
+
+```{r}
+x.mat.G2 <- replicate(m, {
+#simulate the classical BM W_i
+x.seq1 <- rsemiGnorm.bisum.seqind(1e3, c(1,1,2), set.sd = set.sd0)
+x.seq1
+})
+
+S1.seq.G2 <- apply(x.mat.G2, 2, sum)
+hist(S1.seq.G2)
+mean(S1.seq.G2^2)
+moment2
+```
+
+```{r}
+est.dat.G2 <- replicate(1e2, {
+  x.mat.G2 <- replicate(m, {
+#simulate the classical BM W_i
+x.seq1 <- rsemiGnorm.bisum.seqind(1e3, c(1,1,2), set.sd = set.sd0)
+x.seq1
+})
+  S1.seq.G2 <- apply(x.mat.G2, 2, sum)
+  c(mean(S1.seq.G2), mean(S1.seq.G2^2), mean(S1.seq.G2^3))
+})
+
+hist(est.dat.G2[2, ])
+abline(v = moment2, col = 2)
+#overlay them together. 
+```
+
+```{r}
+#check the distribution of the terminal value
+s1.dat.cl <- data.frame(from = "Check", s1.seq = S1.seq.cl)
+s1.dat.G1 <- data.frame(from = "True1", s1.seq = S1.seq.G1)
+s1.dat.G2 <- data.frame(from = "True2", s1.seq = S1.seq.G2)
+
+s1.dat1 <- rbind(s1.dat.cl, s1.dat.G1)
+
+ggplot(s1.dat1, aes(x = s1.seq, fill = from)) + geom_histogram(position = "identity", alpha = 0.5, bins = 30)
+
+s1.dat2 <- rbind(s1.dat.cl, s1.dat.G2)
+
+ggplot(s1.dat2, aes(x = s1.seq, fill = from)) + geom_histogram(position = "identity", alpha = 0.5, bins = 30)
+```
+
+```{r}
+qqplot(S1.seq.cl, S1.seq.G1)
+abline(a=0, b=1, col=2)
+#test whether they have the same distribution
+```
+
+
+#### histogram summary
+
+```{r}
+#save(skew.est.seq.G, file =  "estdatG.Rdata")
+#save(skew.est.seq.G2, file =  "estdatG2.Rdata")
+#save(skew.est.seq.mix, file =  "estdatmix.Rdata")
+#remove(skew.est.seq.G)
+#load("estdatG.Rdata")
+#load("estdatG2.Rdata")
+#load("estdatmix.Rdata")
+```
+
+```{r}
+set.sd0 <- c(0.5, 1.8)
+#sdl0 <- set.sd0[1]
+#sdr0 <- set.sd0[2]
+ind.scene0 <- c(1,2,1)
+m <- 1e3
+K <- 5e2 #number of replications
+skew.est.seq.mix <- replicate(K, {
+#produce the terminal distribution
+x.mat.cl <- replicate(m, {
+#simulate the classical BM W_i
+x.seq1 <- rnormmix.bisum(1e3, ind.scene0, 
+                         set.sd = set.sd0)
+x.seq1
+})
+S1.seq.cl <- apply(x.mat.cl, 2, sum)
+c(mean(S1.seq.cl), mean(S1.seq.cl^2), mean(S1.seq.cl^3))
+})
+
+moment2 <- (set.sd0[ind.scene0[1]]^2 + (set.sd0[ind.scene0[2]]^2 + set.sd0[ind.scene0[3]]^2)/2)/2 
+
+hist(skew.est.seq.mix[2, ])
+abline(v = moment2, col = 2)
+```
+
+```{r}
+skew.est.seq.G1 <- replicate(K, {
+  x.mat.G1 <- replicate(m, {
+#simulate the classical BM W_i
+x.seq1 <- rsemiGnorm.bisum.seqind(1e3, c(1,2,1), set.sd = set.sd0)
+x.seq1
+})
+  S1.seq.G1 <- apply(x.mat.G1, 2, sum)
+  c(mean(S1.seq.G1), 
+    mean(S1.seq.G1^2), 
+    mean(S1.seq.G1^3))
+})
+
+hist(skew.est.seq.G1[2, ])
+abline(v = moment2, col = 2)
+```
+
+
+```{r}
+skew.est.seq.G2 <- replicate(K, {
+  x.mat.G2 <- replicate(m, {
+#simulate the classical BM W_i
+x.seq1 <- rsemiGnorm.bisum.seqind(1e3, c(1,1,2), set.sd = set.sd0)
+x.seq1
+})
+  S1.seq.G2 <- apply(x.mat.G2, 2, sum)
+  c(mean(S1.seq.G2), 
+    mean(S1.seq.G2^2), 
+    mean(S1.seq.G2^3))
+})
+
+hist(skew.est.seq.G2[2, ])
+abline(v = moment2, col = 2)
+```
+
+
+```{r}
+#check the sampling distribution of the sample skewness
+#create the ggplot to overlay the histogram
+sumseq.hmm <- data.frame(from = "Markov-Switch", 
+                        est1.seq = skew.est.seq.mix[1,], 
+                        est2.seq = skew.est.seq.mix[2,],
+                        est3.seq = skew.est.seq.mix[3,])
+sumseq.semiGnorm1 <- data.frame(from = "True1", 
+                        est1.seq = skew.est.seq.G1[1,], 
+                        est2.seq = skew.est.seq.G1[2,],
+                        est3.seq = skew.est.seq.G1[3,])
+sumseq.semiGnorm2 <- data.frame(from = "True2", 
+                                est1.seq = skew.est.seq.G2[1,],
+                                est2.seq = skew.est.seq.G2[2,],
+                                est3.seq = skew.est.seq.G2[3,])
+sumseq.data <- rbind(sumseq.hmm, 
+                     sumseq.semiGnorm1, sumseq.semiGnorm2)
+```
+
+```{r}
+#overlay the ggplot histogram
+ggplot(sumseq.data, aes(x = est3.seq, fill = from)) + geom_histogram(position = "identity", alpha=0.5, bins=50) + ggtitle("Sampling Distn of the 3rd-moment Est.")
+#directly check the skewness
+#2nd moment
+ggplot(sumseq.data, aes(x = est2.seq, fill = from)) + geom_histogram(position = "identity", alpha=0.5, bins=50) + ggtitle("Sampling Distn of the 2nd-moment Est.")
+#1st moment
+ggplot(sumseq.data, aes(x = est1.seq, fill = from)) + geom_histogram(position = "identity", alpha=0.5, bins=50) + ggtitle("Sampling Distn of the 1st-moment Est.")
+#check different model specifications 
+
+```
+
+
+How to extend this example into more general model uncertainty cases. 
+
+(regime-switching GARCH)
+
+This is only one scenario. 
+(no exogenous variable)
+
+Even under this simple situation, 
+we are still uncertain about the appropriate model specification, and if we ignore some possible specifications, it will cause underestimation on the possible future scenarios. 
+
+How to deal with a set of different scenarios? 
+
+We can use it as an example to show when there is ambiguity in this volatility regime switching model. 
+
+This kind of results may give different risk measure on the future (e.g. VaR or Expected Short fall). 
+
+In practice, we can usually go through the max-mean estimation procedure to at least get a calibration of the interval $[\underline{\sigma}, \overline{\sigma}]$. 
+
+Then we can compute the associated sublinear expectations to have a control on the possible underlying future scenarios (I have used this artificial example that, in thie two-volatility regime switching example, although we do not know the exact underlying model structure, we can still use this G-expectation to cover the possible futures.)
+
+```{r}
+#give the ideas of seqential independence 
+
+#for different \varphi 
+#are we able to simulate the path
+#after the max-mean method, can we approximate this expectation? 
+
+```
+
+## Two-vol Example 2
+
+(change to a different scheme, but the regime switching results seem similar)
+
+```{r}
+#approximately simulate the standard BM
+#plot the example
+n.t <- 1e3 #for one scenario, n.t is the number of equally discretized intervals
+n <- n.t 
+T1 <- 1
+set.seed(4)
+#simulate the classical BM W_i
+dw.sc <- ts(rnorm(n)*sqrt(T1/n), start = 0, end = T1, freq = n-1)
+#to get a time series with 1000 points
+w.seq <- ts(cumsum(dw.sc), start = 0, end = T1, freq = n-1)
+#w.seq[n/2]
+plot(dw.sc)
+plot(w.seq)
+```
+
+```{r}
+#simulate the sig.seq 
+set.sd <- c(0.5, 1)
+z.seq1 <- numeric(n)
+#sample one scenario
+#ind.scene <- sample(c(1,2), 3, replace = TRUE)
+#ind.scene <- c(1,2,1)
+ind.scene <- c(1,1,2)
+sd.vec <- set.sd[ind.scene]
+
+z.seq1[seq_len(n/2)] <- sd.vec[1]
+#x.seq[seq_len(n/2)] <- z.seq1[seq_len(n/2)]*w.seq[seq_len(n/2)]
+
+#s.seq <- cumsum(x.seq)
+
+z.seq1[-seq_len(n/2)] <- ifelse(w.seq[n/2]>0, 
+                                sd.vec[2], sd.vec[3])
+
+z.seq <- ts(z.seq1, start = 0, end = T1, freq = n-1)
+plot(z.seq)
+#log return sequence 
+x.seq <- dw.sc*z.seq
+#log price sequence
+log.S.seq <- ts(cumsum(x.seq), start = 0, end = T1, freq = n-1)
+#stock price sequence
+S.seq <- exp(log.S.seq)
+
+
+plot(x.seq, main = "Plot of x.seq")
+#abline(v = 0.5, col = "gray", lty = 2)
+plot(x.seq^2, type = "l", main = "Plot of x.seq^2")
+
+plot(x.seq^3, type = "l", main = "Plot of x.seq^3")
+
+x.seq.num <- as.numeric(x.seq)
+
+cumavg <- function(x){
+  cumsum(x)/seq_along(x)
+}
+
+plot(cumavg(x.seq^3), type = "l")
+
+#also plot the previous example on W1*W2^2 
+
+plot(log.S.seq)
+#plot(S.seq)
+#varphi <- function(x) x^3
+
+#plot(log.S.seq^3/seq_len(n))
+
+#save images 
+
+```
+
+###EDA
+```{r}
+#check the normality of the whole sequence
+qqnorm(x.seq)
+qqline(x.seq, col = 2)
+
+#check the normality of the first half
+qqnorm(x.seq[seq_len(n/2)])
+qqline(x.seq[seq_len(n/2)], col = 2)
+
+#check the normality of the second half
+qqnorm(x.seq[-seq_len(n/2)])
+qqline(x.seq[-seq_len(n/2)], col = 2)
+
+#check the auto correlations 
+acf(x.seq)
+#acf(x.seq^2)
+acf(abs(x.seq))
+acf(x.seq.num^2)
+acf(abs(x.seq.num))
+```
+
+
+```{r}
+#Consider how to give a longer sequence which may have uncertainty in the possible future. 
+
+```
+
+In this artificial example, the intuition here is that we may be uncertain about the model itself because it is essentially hard to distinguish these models (whether the state space is the volatility itself or the stock price) at early stage (where we are lack of information on the underlying structure.)
+
+We do have 50 replications of the whole procedure (using the same simulation scheme). 
+
+```{r}
+#simulate this scenario m times
+#just like we look at the behaviour of the datas sequence periodically
+set.seed(271)
+m <- 5e2
+n <- n.t <- 1e3
+T1 <- 1
+#set.sd <- c(1, 2)
+set.sd <- c(0.5, 1.8)
+ind.scene <- c(1,2,1)
+sd.vec <- set.sd[ind.scene]
+z.seq1 <- numeric(n)
+
+#write it into a function
+
+x.mat <- replicate(m, {
+#simulate the classical BM W_i
+dw.sc <- ts(rnorm(n)*sqrt(T1/n), start = 0, end = T1, freq = n-1)
+#to get a time series with 1000 points
+w.seq <- ts(cumsum(dw.sc), start = 0, end = T1, freq = n-1)
+#simulate the sig.seq
+z.seq1[seq_len(n/2)] <- sd.vec[1]
+z.seq1[-seq_len(n/2)] <- ifelse(w.seq[n/2]>0, 
+                                sd.vec[2], sd.vec[3])
+z.seq <- ts(z.seq1, start = 0, end = T1, freq = n-1)
+#log return sequence 
+x.seq <- dw.sc*z.seq
+x.seq
+})
+
+#matplot(x.mat[,1:10], type = "l")
+t.seq <- seq(0,1, length.out = n)
+set.seed(123)
+ind.seq <- sample(seq_len(m), 20)
+for (i in ind.seq){
+  plot(t.seq, x.mat[,i], type = "l", ylim = 0.2*c(-1,1))
+}
+ 
+l <- 10 #number of period to check
+t.seq <- seq(0, l, length.out = n*l)
+x.seq <- as.vector(x.mat[,seq_len(l)])
+plot(t.seq, x.seq, type = "l", main = paste("Plot of x with replication times = ", l))
+#it does have some sudden market status change
+abline(v = seq_len(l), col = "gray", lty = 2)
+#as.vector(matrix(1:6, 2, 3))
+```
+
+```{r}
+x.seq <- as.vector(x.mat[,seq_len(l)])
+plot(t.seq, abs(x.seq), type = "l", main = paste("Plot of x^2 with replication times = ", l))
+#it does have some sudden market status change
+abline(v = seq_len(l), col = "gray", lty = 2)
+```
+
+```{r}
+#if we simply look at the distribution at each time interval, 
+qqnorm(x.mat[seq_len(n/2), 1])
+qqline(x.mat[seq_len(n/2), 1], col=2)
+```
+
+```{r}
+qqnorm(x.mat[-seq_len(n/2), 1])
+qqline(x.mat[-seq_len(n/2), 1], col=2)
+#it looks very similar to normal distribution
+```
+
+```{r}
+qqnorm(x.mat[,1])
+qqline(x.mat[,1], col=2)
+```
+
+The distribution in each half period is normal. 
+The distribution of the mixed sample in two periods is also close to normal distribution. 
+
+If we directly fit a regime switching model, it will tell us. 
+```{r}
+#design this volatility-regime examples
+
+#estimate the volatility in each time period 
+#plot the estimated volatility 
+
+get.var <- function(x){
+  ind1 <- seq_len(n/2)
+  x.sub1 <- x[ind1]
+  x.sub2 <- x[-ind1]
+  2*c(sum(x.sub1^2), sum(x.sub2^2))
+}
+
+#get.var(x.mat[,3])
+
+#mean(x.mat[,1]^2)
+
+#set.var <- set.sd^2
+
+#var.vec <- apply(x.mat[,1:50], 2, get.var)
+
+var.vec <- apply(x.mat, 2, get.var)
+#to approximately show the transition probability
+
+sd.vec <- sqrt(var.vec)
+
+sd.mat <- apply(sd.vec, 2, function(z){
+  rep(z, each = n/2)
+})
+
+matplot(sd.mat, type = "l")
+
+sd.low <- set.sd[1]
+sd.high <- set.sd[2]
+
+var.disc<- function(var.est, alpha=0.1){
+  #crit.val <- qchisq(1-alpha, n/2, lower.tail = TRUE)
+  #thres <- (2*sd.low^2)/n * crit.val
+  thres <- (sd.low^2+sd.high^2)/2
+  ifelse(var.est > thres, sd.high, sd.low)
+}
+
+
+var.identify <- apply(var.vec, 1, var.disc)
+
+table(var.identify[,2])
+
+#hist(var.vec[1,], xlim = c(0,5))
+#hist(var.vec[2,], xlim = c(0,5))
+
+```
+
+```{r}
+#approximate the switching probability 
+
+#get 1,1 
+#get 1,2 
+
+#check the distribution of the summation 
+#check the skewness
+
+#distinguish between the low and high volatility regime 
+
+#use confidence interval
+
+#sig.low and sig.up 
+#using confidence interval 
+
+#given the low vol
+#check how many times we have high vol
+
+#given the high vol
+#check how many times we have low vol
+
+#group the data sequence
+#then plot the local volatility
+#or we can also use the moving average method
+```
+
+```{r}
+#install.packages("pracma")
+library(pracma)
+x <- x.mat[,10]*sqrt(n)
+x <- x.seq.num*sqrt(n)
+sig2.seq <- movavg(x^2, n = 100, type = "t")
+#sig2.seq
+#plot(sig2.seq, type = "l")
+#possible future scenarios. 
+
+get.sig2.movavg <- function(x.old){
+  x <- x.old * sqrt(n)
+  sig2.seq <- movavg(x^2, n = 200, type = "t")
+  sig2.seq
+}
+sig2.mat <- apply(x.mat, 2, get.sig2.movavg)
+matplot(sig2.mat, type = "l")
+```
+
+This kind of data generation scheme cannot be captured by a volatility regime switching model. 
+
+(also show the details about this statement.)
+
+(if we use different simulation schmeme, it has similar regime switching results but they have significantly different skewness.) 
+
+```{r}
+log.S.seq <- apply(x.mat, 2, sum)
+#under a classical regime switching model, it should be symmetric
+#but actually it does not
+mean(log.S.seq^3)
+hist(log.S.seq)
+#hist(log.S.seq)
+#check the skewness
+
+#plot the SLLN
+
+#we can also replicate this estimation to get the standard error
+#we can also do the bootstrap
+
+log.S.seq <- apply(x.mat[,1:50], 2, sum)
+#under a classical regime switching model, it should be symmetric
+#but actually it does not
+mean(log.S.seq^3)
+hist(log.S.seq)
+#we can do the boostrap
+#to get the SE
+```
+
+```{r}
+#rbisemiGnorm.seqind
+#also organize the SLLN notes
+rbisemiGnorm.seqind.sum <- function(n, sd.ind){
+  
+}
+```
+
+```{r}
+skew.est.seq.G <- replicate(5e2, {
+ind.scene <- c(1,2,1)
+sd.vec <- set.sd[ind.scene]
+z.seq1 <- numeric(n)
+
+x.mat <- replicate(m, {
+#simulate the classical BM W_i
+dw.sc <- ts(rnorm(n)*sqrt(T1/n), start = 0, end = T1, freq = n-1)
+#to get a time series with 1000 points
+w.seq <- ts(cumsum(dw.sc), start = 0, end = T1, freq = n-1)
+#simulate the sig.seq
+z.seq1[seq_len(n/2)] <- sd.vec[1]
+z.seq1[-seq_len(n/2)] <- ifelse(w.seq[n/2]>0, 
+                                sd.vec[2], sd.vec[3])
+z.seq <- ts(z.seq1, start = 0, end = T1, freq = n-1)
+#log return sequence 
+x.seq <- dw.sc*z.seq
+x.seq
+})
+  log.S.seq <- apply(x.mat, 2, sum)
+ #under a classical regime switching model, it should be symmetric
+ #double check this 
+  mean(log.S.seq)
+  #estimation of the variance 
+})
+```
+
+
+```{r}
+#mixture model 
+#with low and high vol specified with the same chances
+#simulation based on the volatility regime switching
+#set.seed(314)
+m <- 5e2
+n <- n.t <- 1e3
+T1 <- 1
+set.sd <- c(1, 2)
+ind.scene <- c(1,2,1)
+sd.vec <- set.sd[ind.scene]
+z.seq1 <- numeric(n)
+
+x.mat.cl <- replicate(m, {
+#simulate the classical BM W_i
+dw.sc <- ts(rnorm(n)*sqrt(T1/n), start = 0, end = T1, freq = n-1)
+#to get a time series with 1000 points
+w.seq <- ts(cumsum(dw.sc), start = 0, end = T1, freq = n-1)
+#simulate the sig.seq
+z.seq1[seq_len(n/2)] <- sd.vec[1]
+z.seq1[-seq_len(n/2)] <- rbinom(1,1,1/2)*(sd.vec[3]-sd.vec[2])
++ sd.vec[2]
+#z.seq1[-seq_len(n/2)] <- ifelse(runif(1)>1/2, 
+#                               sd.vec[2], sd.vec[3])
+z.seq <- ts(z.seq1, start = 0, end = T1, freq = n-1)
+#log return sequence 
+x.seq <- dw.sc*z.seq
+x.seq
+})
+
+#then let us check the skewness
+#it should have certain skewness zero. 
+
+#but in fact, it has uncertain skewness. 
+#it may have positive or negative skewness. 
+
+```
+
+```{r}
+log.S.seq1 <- apply(x.mat.cl, 2, sum)
+#under a classical regime switching model, it should be symmetric
+#double check this 
+mean(log.S.seq1^3)
+hist(log.S.seq1)
+#this will give a symmetric distribution 
+#with skewness 0 
+```
+
+```{r}
+#construct estimation for skewness with bootstrap
+#or use replications of the whole procedure 
+#also the confidence interval
+
+skew.est.seq <- replicate(5e2, {
+  x.mat.cl <- replicate(m, {
+#simulate the classical BM W_i
+dw.sc <- ts(rnorm(n)*sqrt(T1/n), start = 0, end = T1, freq = n-1)
+#to get a time series with 1000 points
+w.seq <- ts(cumsum(dw.sc), start = 0, end = T1, freq = n-1)
+#simulate the sig.seq
+z.seq1[seq_len(n/2)] <- sd.vec[1]
+z.seq1[-seq_len(n/2)] <- rbinom(1,1,1/2)*(sd.vec[3]-sd.vec[2])
++ sd.vec[2]
+#z.seq1[-seq_len(n/2)] <- ifelse(runif(1)>1/2, 
+#                               sd.vec[2], sd.vec[3])
+z.seq <- ts(z.seq1, start = 0, end = T1, freq = n-1)
+#log return sequence 
+x.seq <- dw.sc*z.seq
+x.seq
+})
+  log.S.seq1 <- apply(x.mat.cl, 2, sum)
+ #under a classical regime switching model, it should be symmetric
+ #double check this 
+  mean(log.S.seq1^3)
+  #estimation of the variance 
+})
+
+#construct parametric boostrap C.I. 
+
+
+```
+
+```{r}
+hist(skew.est.seq)
+```
+
+
+
+This is only one scenario. 
+(no exogenous variable)
+
+Even under this simple situation, 
+we are still uncertain about the appropriate model specification, and if we ignore some possible specifications, it will cause underestimation on the possible future scenarios. 
+
+How to deal with a set of different scenarios? 
+
+We can use it as an example to show when there is ambiguity in this volatility regime switching model. 
+
+This kind of results may give different risk measure on the future (e.g. VaR or Expected Short fall). 
+
+In practice, we can usually go through the max-mean estimation procedure to at least get a calibration of the interval $[\underline{\sigma}, \overline{\sigma}]$. 
+
+Then we can compute the associated sublinear expectations to have a control on the possible underlying future scenarios (I have used this artificial example that, in thie two-volatility regime switching example, although we do not know the exact underlying model structure, we can still use this G-expectation to cover the possible futures.)
+
+```{r}
+#
+```
+
+```{r}
+#give the ideas of seqential independence 
+
+#for different \varphi 
+#are we able to simulate the path
+#after the max-mean method, can we approximate this expectation? 
+
+```
+
+
+# 2-Vol-RS Ex (long seq)
+
+Our focus in on the model uncertainty. 
+
+S = The set of stylized facts 
+
+G = The set of our goals
+
+Set S may not always fit into G. 
+
+Person 1 propose a model by analyzing the data by matching S. 
+
+If Person 2 with goal from G directly use this model to implement the goal, without re-investigating the model (which features it is trying to match, whether it is sufficient to fit into G), it may bring great danger in the final results. 
+
+- Alice side: generate dataset (She knows the true generation scheme.)
+
+$$
+Y_{t}=\sigma_{t}\epsilon_{t},t=1,2,\dotsc,n,
+$$
+with $\sigma_t \in \{\underline{\sigma},\overline{\sigma}\}$, using a typical generation scheme and one realization path is provided as a data sequence: $(y_{t})_{t=1}^{n}$.
+
+- Bob side: analyze the dataset (to achieve the objectives).
+
+If Alice may change the switching rule as time goes, what should be a good strategy for Bob? 
+
+The objective of the data analyst procedure is to make inference on
+the conditional expectation of $(Y_{n+1}+Y_{n+2})^{k}$ with $k=1,2,3$. 
+$$
+E[(Y_{n+1}+Y_{n+2})^{k}|Y_{t}=y_{t},t=1,2,\dotsc,n].
+$$
+
+In general, the goal is to estimate the (prediction) density of $(Y_{n+1}+Y_{n+2})$
+conditional on the current history $y_{1},y_{2},\dotsc,y_{n}$ (which
+is treated as given). 
+
+## Alice Side
+- (Make the choice of the next $\theta$ depend on the sum of previous $y_t$ with the threshold design, in this way, we may have a blocking design and keep the varying future density)
+
+- (Then check the performance of VaR prediction by moving the time window)
+
+```{r}
+## Initialization
+#Alice side
+#generate longer sequence
+set.seed(1) #to be removed
+N <- 2e3
+sdl0 <- 0.5
+sdr0 <- 2
+set.sd <- c(sdl0, sdr0)
+sig.seq <- y.seq <- S.seq <- numeric(N)
+theta.seq <- numeric(N-1) #theta.seq[i] is used from time i to i+1
+#Initialization 
+
+#time t=1
+sig.seq[1] <- sample(set.sd, 1)
+ep.seq <- rnorm(N) #our main focus is the sigma sequence 
+theta.seq[1] <- sample(c(0,1,2,3),1)
+y.seq[1] <- sig.seq[1]*ep.seq[1]
+S.seq[1] <- y.seq[1] 
+
+#from t=1 to t=2
+ind.scene <- number2binary(theta.seq[1], noBits = 2) + 1 
+#transfer 1 to (1,1), to check, run the code below
+#sapply(0:3, function(x) number2binary(x, noBits = 2) + 1)
+sd.vec <- set.sd[ind.scene] #choose from the four possible scenarios
+sig.seq[2] <- ifelse(y.seq[1]>0, sd.vec[1], sd.vec[2])
+y.seq[2] <- sig.seq[2]*ep.seq[2]
+S.seq[2] <- sum(y.seq[seq_len(2)])
+
+#from time 3 to N
+for (i in seq(2,N-1,1)){
+  #get the sig at time i+1
+  #we also compute the theta.seq[i] which is used from time i to i+1
+  #from time i to i+1, or write it as [i,i+1]
+  re <- prob.sigRS.rule(sig.now = sig.seq[i], 
+                        ep.now = ep.seq[i], 
+                        info.pre = y.seq[i-1], 
+                        theta.choose = theta.choose2)
+  theta.seq[i] <- re$theta.nextperiod #record the theta used in [i,i+1]
+  sig.seq[i+1] <- re$sig.next
+  y.seq[i+1] <- sig.seq[i+1]*ep.seq[i+1]
+  S.seq[i+1] <- sum(y.seq[seq_len(i+1)])
+}
+
+dat.history0 <- data.frame(y.seq = y.seq, sig.seq=sig.seq, S.seq=S.seq, ep.seq=ep.seq)
+
+list.history0 <- list(y.seq = y.seq, 
+                     sig.seq=sig.seq, 
+                     ep.seq=ep.seq, 
+                     S.seq=S.seq, 
+                     theta.seq=theta.seq)
+```
+
+
+## Bob Side
+
+### EDA
+
+```{r}
+#Bob side 
+#EDA 
+#if we make info.pre = S.seq[i]/i, it will approach zero
+#plot the last 1st point
+  plot(y.seq, type = "l")
+  plot(abs(y.seq), type = "l")
+  plot(y.seq^2, type = "l")
+  plot(y.seq^3, type = "l")
+  
+  #we can also make it into a time series if needed 
+  plot(S.seq, type = "l")
+  #plot(S.seq/sqrt(seq_along(S.seq)), type = "l")
+  #plot(S.seq/seq_along(S.seq), type = "l")
+  #also check the LIL
+  #ind.seq <- seq_along(S.seq)[-seq_len(20)]
+  #plot(S.seq[-seq_len(20)]/sqrt(ind.seq*log(log(ind.seq))), type = "l")
+  acf(y.seq)
+  acf(abs(y.seq))
+  acf(y.seq^2) #it has some volatility clustering
+  acf(y.seq^3)
+  hist.den(y.seq)
+  #compute the skewness
+  #plot(theta.seq[1:400], type = "l")
+  #plot(sig.seq[1:400], type = "l")
+```
+
+```{r}
+qqnorm(y.seq)
+qqline(y.seq, col=2)
+```
+
+There are several ways to model this sequence:
+1. Bob may directly model the moving average of the sequence: 
+$$
+a_t =\frac{y_{t-1}+y_t}{2},t=2,3,\dotsc,N.
+$$
+or directly consider the MA(1): 
+$$
+x_t = y_t -\theta y_{t-1}, t=1,2,\dotsc,N.
+$$
+
+2. Bob may also model the non-overlapping grouped sum of the sequence of size two: 
+$$
+b_t=\frac{y_{2t-1}+y_{2t}}{2},t=1,2,\dotsc,N/2.
+$$
+
+The differences are: 
+- if $y_t$ are uncorrelated, $b_t$ has the same property but $a_t$ re correlated. 
+
+```{r}
+#histogram of moving average
+a.seq <- (y.seq[-1] + y.seq[-N])/2
+a.ts <- ts(a.seq)
+plot(a.ts) #plot a subsequnce of a.ts
+hist(a.ts)
+#hist(a.ts*2)
+#plot(a.seq[seq_len(1e3)], type = "l")
+#hist(a.seq)
+```
+
+```{r}
+acf(a.ts)
+acf(a.ts^2)
+acf(a.ts^3)
+```
+
+```{r}
+theta <- 0.5
+x.seq <- y.seq[-1]-theta*y.seq[-N]
+x.ts <- ts(x.seq)
+plot(x.ts)
+```
+
+
+```{r}
+#tidyverse coding if needed
+y.mat <- matrix(y.seq, ncol=2, byrow = TRUE)
+b.seq <- apply(y.mat, 1, mean)
+b.ts <- ts(b.seq)
+plot(b.ts)
+```
+
+```{r}
+hist(b.ts)
+acf(b.ts) #uncorrelated 
+acf(b.ts^2) #correlated
+acf(b.ts^3)
+```
+
+Next Bob may directly work on the prediction of $a_t$ or $b_t$. 
+
+```{r}
+#test of stationarity
+library(aTSA)
+library(lmtest)
+library(sarima)
+#adf.test(y.seq)
+#stationary 
+
+#do a white noise test
+#?whiteNoiseTest
+#y.acf 
+#test.iid1 <- whiteNoiseTest(h0 = "iid", nlags = c(5,10,20))
+#bartlett
+
+#Q test
+
+```
+
+### Bootstrap (Blocking)
+
+Assume the higher-order lag autocorrelation is negligible, then we can use block bootstrap method (to capture the lower-order lag autocorrelation). 
+
+```{r}
+# produce the distribution of the prediction (Y[n+1], Y[n+2])
+# (compute the moment if needed)
+ind2seq <- function(ind.mat, x){
+  #ind.mat = cbind(ind.start, ind.end)
+  #x1.mat <- apply(ind.mat, 1, function(I) x[I[1]:I[2]])
+  re <- NULL
+  for (i in seq_len(nrow(ind.mat))){
+    re <- c(re, x[ind.mat[i,1]:ind.mat[i,2]])
+  }
+  re
+}
+
+f1 <- function(x) {
+  n <- length(x)
+  sum(x[n+c(1,2)])
+}
+
+bootstrap.block <- function(dat, b = 2, len.boot, n.boot, 
+                             f = f1,
+                             ovlp = FALSE, 
+                             plot.ind = TRUE){
+  #b: block size
+  #len.boot: the length of bootstrapped sequence
+  #n.boot: the number of bootstrapping times
+  N <- length(dat)
+  if (ovlp) {
+    re.boot <- replicate(n.boot, {
+    ind.seq <- seq_len(N-b+1)
+    num.block <- ceiling(len.boot/b)
+    ind.start <- sample(ind.seq, num.block)
+    ind.end <- ind.start + b - 1
+    ind.mat <- cbind(ind.start, ind.end)
+    dat.boot <- ind2seq(ind.mat, dat)
+    #f(dat.boot[seq_len(len.boot)])
+    dat.boot[seq_len(len.boot)]
+    })
+  } else {
+    re.boot <- replicate(n.boot, {
+    ind.seq <- seq(1, N, b)
+    num.block <- ceiling(len.boot/b)
+    ind.start <- sample(ind.seq, num.block)
+    ind.end <- pmin(ind.start + b - 1, N)
+    dat.boot <- ind2seq(cbind(ind.start, ind.end), dat)
+    #f(dat.boot[seq_len(len.boot)])
+    dat.boot[seq_len(len.boot)]
+    })
+  }
+  return(re.boot)
+  #re.list <- list
+}
+
+```
+
+```{r}
+# re <- bootstrap.block(y.seq, b = 2, len.boot = N, 
+#                       n.boot = 1e3, 
+#                       ovlp = FALSE)
+```
+
+
+
+```{r}
+#what kind of existing methods can we try here? 
+#(we want to go through several common ones)
+
+#Bootstrap
+
+#assume a stationary distribution
+sum2.seq <- avg2.seq*2
+mean(sum2.seq)
+mean(sum2.seq^2)
+mean(sum2.seq^3)
+
+boot.fit <- function(dat, times = 1e3, 
+                     alpha = 0.05){
+  mean.est <- mean(dat)
+  sd.est <- sd(dat)
+  n <- length(dat)
+  boot.seq <- replicate(times, {
+    dat.boot <- sample(dat, n, replace = TRUE)
+    mean.boot <- mean(dat.boot)
+    sd.boot <- sd(dat.boot)
+    (mean.boot - mean.est)/sd.boot
+  })
+  boot.qt <- quantile(boot.seq, c(alpha/2, 1-alpha/2))*(sd.est/sqrt(n))
+  #produce the confidence interval
+  list(mean.est = mean.est, 
+       CI = mean.est + boot.qt*sd.est)
+}
+
+boot.fit(sum2.seq)
+boot.fit(sum2.seq^2)
+boot.fit(sum2.seq^3)
+
+#also try the moving block bootstrap 
+#with block size = 2, 
+
+#consider non-overlapping blocks
+#treat every blocks as independent copies
+#then use this to produce an estimate of the prediction density
+
+#prediction interval 
+
+#(conditional expectation)
+
+#sampling from the ecdf of sum2.seq
+
+#non-parametric bootstrap 
+
+#use the blocking bootstrap 
+
+```
+ 
+ 
+### Sieve Boostrap (with GARCH as prediction model) 
+
+- Using bootstrap may be suitable for the direct prediction of the future values (also produce the prediction density or distribution); 
+- it could be different from the conditional distribution (but they are closely related even almost the same in practice.)
+- to directly consider the conditional distribution, we need to use the current observation $(\sigma_N, y_N)$ to produce the $(\sigma_{N+1}, \sigma_{N+2})$, then give the distribution of $(Y_{N+1}+Y_{N+2})$. 
+
+```{r}
+garch.re <- garchfit.my(y.seq, include.mean = FALSE)
+#garch.re <- garchfit.my(y.seq, include.mean = TRUE)
+#garch.re$est.par
+garch.fit <- garch.re$fit.re
+print(garch.fit)
+```
+
+```{r}
+sig.seq.garch <- garch.re$sig.org
+plot(sig.seq.garch, type = "l")
+#hist(sig.seq.garch)
+```
+
+```{r}
+garch.pred.re <- garch.fit.predict(y.seq, 
+                                   boot.time = 1e3)
+```
+
+
+### A time series model (GARCH)
+
+### HMM
+
+```{r}
+
+```
+
+```{r}
+#use HMM to make prediction 
+hmm.re <- hmm.fit.predict(y.seq)
+y.new.sum.hmm0 <- hmm.re$y.new.sum
+hmm.re$pars.fit #organize it into a more compact form of hmm fit results
+```
+
+
+```{r, eval=FALSE, echo=FALSE}
+#fit a HMM model (the most suitable one)
+# consider a HMM setup, 
+####try this
+
+
+data("speed")
+set.seed(1)
+mod <- depmix(response = rt~1, data = speed, nstates = 2, 
+              trstart = runif(4))
+fm <- fit(mod, emc = em.control(rand=FALSE))
+fm
+#print(fm)
+summary(fm)
+library(HiddenMarkov)
+#HMM
+#without blocking design 
+
+my.sim.hmm <- function()
+dat.seq <- y.seq
+hmm.fit.sim <- function(dat.seq, plot.ind = TRUE){
+  N <- length(dat.seq)
+  dat <- data.frame(y=dat.seq)
+  mod.hmm <- depmix(y ~ 1, family = gaussian(), nstates = 2, 
+                data = data.frame(y=dat.seq))
+  hmmfit <- fit(mod.hmm, verbose = TRUE)
+  re <- posterior(hmmfit)
+  #AIC(hmmfit)
+  #BIC(hmmfit)
+  plot(re$state, type = "l")
+  state.seq <- re$state
+  #simulate from a given state
+  re2 <- forwardbackward(hmmfit)
+  matplot(re2$gamma[seq_len(1e2),], type = "l")
+  sim.re <- simulate(mod.hmm, nsim = 1, 
+                     times = as.logical(c(rep(0,N),1,1)))
+  sim.seq <- as.numeric(sim.re@response[[1]][[1]]@y)
+  #sim.seq2 <- as.numeric(sim.re@response[[2]][[1]]@y) 
+  #to compare
+  #response.list <- sim.re@response
+  #predict the future values 
+  if(plot.ind) plot(sim.seq, type = "l")
+ 
+  #summary(hmmfit)
+
+  #apply(trans.mat, 1, sum)
+
+  #make a summary of the future, 
+  #compare with the true future 
+}
+
+#plot(y.seq^2, type = "l")
+#theta.choose2(y.seq[c(N-1,N)])
+
+#one may also try a bootstrap method
+#try speed dataset   
+
+y.seq.train <- get.meanseq.novlp(y.seq.train.org, n.guess = gr.len)
+#y.seq.train <- y.seq.train1/gr.len
+hmm <- depmix(y.seq.train ~ 1, family = multinomial(), nstates = 3, data=data.frame(y.seq.train=y.seq.train))
+#hmm
+hmmfit <- fit(hmm, verbose = TRUE)
+#with blocking design
+#hmmfit@transition
+summary(hmmfit)
+hmmfit@transition
+#hmmfit@transition
+
+#parameter changing
+#simulate from the hmm 
+
+#simulate from depmix object
+x.seq.hmm <- simulate(hmm)
+
+#a more straightforward way
+pars.fit <- getpars(hmmfit)
+mat.vec <- pars.fit[3:6]
+#mat.vec <- c(hmmfit@transition[[1]]@parameters$coefficients, 
+#             hmmfit@transition[[2]]@parameters$coefficients)
+trans.mat <- matrix(mat.vec, ncol = 2, byrow = TRUE)
+#apply(trans.mat, 1, sum)
+#x <- dthmm(NULL, Pi = trans.mat, c())
+re.new <- my.sim.hmm(2, Pi = trans.mat, 
+                 pm = list(mean = pars.fit[c(7,9)], 
+                           sd = pars.fit [c(8,10)]), 
+                 initial = state.seq[N])
+
+sum(re.new$y)
+
+#state.seq
+
+my.sim.hmm <- function (n, initial, Pi, pm) {
+    #generate state
+    x <- y <- numeric(n)
+    x[1] <- sample(c(1,2), 1, prob = Pi[,1])*as.numeric(initial==1) + sample(c(1,2), 1, prob = Pi[,2])*as.numeric(initial==2)
+    for (i in seq_len(n-1)){
+      x[i+1] <- sample(c(1,2), 1, prob = Pi[,1])*as.numeric(x[i]==1) + sample(c(1,2), 1, prob = Pi[,2])*as.numeric(x[i]==2)
+    }
+    #generate observation
+    y <- rnorm(n, mean = pm$mean[1], sd=pm$sd[1])*as.numeric(x==1) + rnorm(n, mean = pm$mean[2], sd=pm$sd[2])*as.numeric(x==2) 
+    #rname <- paste("r", distn, sep = "")
+    return(list(x = x, y = y))
+}
+```
+
+```{r}
+list.future.hmm0 <- summary.future.hmm(list.history = list.history0, 
+                              sample.size = 1e3, 
+                              MC.size = 1e2, MC.ind = TRUE, 
+                              plot.ind = FALSE)
+```
+
+```{r}
+#assume a model to make the prediction 
+
+#HMM (univariate) 2-state
+
+#2-state HMM
+#then create the CI 
+
+
+#HMM (bivariate normal) 8-state
+
+
+
+#Bayesian averaging/pooling method
+
+
+```
+
+## Reveal the Story
+
+```{r}
+#we may reveal the second half of the story next time.
+#this is not simply showing the limitation of a naive setup of HMM
+#this is also not about considering a more complicated bivariate normal
+
+#this is about the limitation of consider only one possible probablistic rule for the future observation
+
+```
+
+```{r}
+list.future <- summary.future(list.history = list.history0, 
+                              sample.size = 1e3, 
+                              MC.size = 1e2, MC.ind = TRUE)
+```
+
+Interesting things happen when we ask Alice to replicate her generation procedure one more time (use exactly the same scheme she has used). 
+
+```{r, warning=FALSE}
+#overlay the hmm model with the true future one
+#overlay the garch(1,1) model (with sieve bootstrap)
+y.new.sum.hmm0 <- list.future.hmm0$y.new.sum
+y.new.sum.true0 <- list.future$y.new.sum
+y.new.sum.garch0 <- garch.pred.re$y.new.sum
+
+x <- data.frame(true.future = y.new.sum.true0,
+                  hmm.pred = y.new.sum.hmm0,
+                  garch.pred = y.new.sum.garch0)
+x.dat <- melt(x)
+  print(ggplot(x.dat, aes(x=value, fill=variable, col=variable)) + geom_density(alpha=0.2) + scale_fill_manual(values=cbPalette) + scale_colour_manual(values=cbPalette))
+```
+
+### Repeat thie procedure
+
+```{r, warning=FALSE}
+#c(1:4, 6,8, 16)
+for (i in 2){
+  set.seed(i)
+  sig.seq <- y.seq <- S.seq <- numeric(N)
+  theta.seq <- numeric(N-1) #theta.seq[i] is used from time i to i+1
+  #Initialization 
+  
+  #time t=1
+  sig.seq[1] <- sample(set.sd, 1)
+  ep.seq <- rnorm(N) #our main focus is the sigma sequence 
+  theta.seq[1] <- sample(c(0,1,2,3),1)
+  y.seq[1] <- sig.seq[1]*ep.seq[1]
+  S.seq[1] <- y.seq[1] 
+  
+  #from t=1 to t=2
+  ind.scene <- number2binary(theta.seq[1], noBits = 2) + 1 
+  #transfer 1 to (1,1), to check, run the code below
+  #sapply(0:3, function(x) number2binary(x, noBits = 2) + 1)
+  sd.vec <- set.sd[ind.scene] #choose from the four possible scenarios
+  #this set of rules can also be enlarged.
+  sig.seq[2] <- ifelse(y.seq[1]>0, sd.vec[1], sd.vec[2])
+  y.seq[2] <- sig.seq[2]*ep.seq[2]
+  S.seq[2] <- sum(y.seq[seq_len(2)])
+  #from time 3 to N
+  for (i in seq(2,N-1,1)){
+    #get the sig at time i+1
+    #we also compute the theta.seq[i] which is used from time i to i+1
+    #from time i to i+1, or write it as [i,i+1]
+    re <- prob.sigRS.rule(sig.now = sig.seq[i], 
+                          ep.now = ep.seq[i],
+                          info.pre = y.seq[i-1])
+    sig.seq[i+1] <- re$sig.next
+    theta.seq[i] <- re$theta.nextperiod #record the theta used in [i,i+1]
+    y.seq[i+1] <- sig.seq[i+1]*ep.seq[i+1]
+    S.seq[i+1] <- sum(y.seq[seq_len(i+1)])
+  }
+  list.history1 <- list(y.seq = y.seq, 
+                        sig.seq = sig.seq, 
+                        ep.seq= ep.seq, 
+                        S.seq = S.seq, 
+                        theta.seq = theta.seq)
+  
+  #print(theta.choose2(y.seq[c(N-1,N)]))
+  list.future <- summary.future(list.history = list.history1, 
+                                sample.size = 1e3, 
+                                MC.size = 1e2, 
+                                plot.ind = FALSE, 
+                                MC.ind = FALSE)
+  y.new.sum.true1 <- list.future$y.new.sum
+  
+  #hmm fit
+  list.future.hmm1 <- summary.future.hmm(
+    list.history = list.history1, 
+    sample.size = 1e3, 
+    MC.size = 1e2, 
+    MC.ind = FALSE,
+    plot.ind = FALSE)
+  y.new.sum.hmm1 <- list.future.hmm1$y.new.sum
+  
+  #also try bivariate hmm fit
+  
+  #garch fit
+  garch.pred.re1 <- garch.fit.predict(y.seq, 
+                                   boot.time = 1e3, 
+                                   plot.ind = FALSE)
+  y.new.sum.garch1 <- garch.pred.re1$y.new.sum
+  
+  x <- data.frame(true.future = y.new.sum.true1,
+                  hmm.pred = y.new.sum.hmm1,
+                  garch.pred = y.new.sum.garch1)
+#change the true future to red one, 
+  x.dat <- melt(x)
+  print(ggplot(x.dat, aes(x=value, fill=variable, col=variable)) + geom_density(alpha=0.25) + scale_fill_manual(values=cbbPalette) + scale_colour_manual(values=cbbPalette) + ylim(0,0.6) + xlim(-10,10)) 
+  #print(ggplot(x.dat, aes(x=value, fill=variable, col=variable)) + geom_density(alpha=0.2) + ylim(0,0.6) + xlim(-10,10)) 
+}
+
+```
+
+We can see that the prediction density does not change much for  common statistical methods when we regenerate the dataset (indeed, it comes from a fixed generation scheme with only the initial seed being changed, but the data history itself has been changed.) However, we can see that the change in true prediction density (conditional on the current history) is more dramatic than the one from the model. 
+
+Since we cannot really check the true future density in real data practice. Then we can look at the VaR performance by fitting our candidate models in different periods of data sequence. 
+
+```{r}
+#y.new.sum.true0 <- list.future$y.new.sum
+#check the moment property for the current density
+
+```
+
+```{r}
+#check VaR for the current density
+
+#hmm-univariate 
+hmm.VaR.future<- summary.future.hmm(y.seq0, 
+                                    print.ind = TRUE, MC.ind = FALSE, 
+                                    plot.ind = TRUE, par.est = par.est.VaR)
+
+VaR.hmm <- hmm.VaR.future$moment.est
+
+violrate.hmm <- sapply(VaR.hmm, 
+                       function(x) mean(y.new.sum.true0+x<0))
+violrate.hmm
+
+#hmm-bivariate
+#garch
+garch.VaR.future<- summary.future.garch(y.seq0, 
+                                        print.ind = TRUE, MC.ind = FALSE, 
+                                        plot.ind = TRUE, par.est = par.est.VaR)
+#also include the conditional bootstrap (CB) here
+
+#the true VaR 
+
+
+
+```
+
+```{r}
+alpha.seq <- c(.01, .05, .1)
+var.semiG <- sapply(alpha.seq, VaR.semiGnorm.bisum)
+var.semiG
+```
+
+```{r}
+#check the %vol of G-VaR
+VaR.semiG <- var.semiG
+violrate.semiG <- sapply(VaR.semiG, 
+                       function(x) mean(y.new.sum.true0+x<0))
+violrate.semiG
+#repeat this procedure many times
+
+```
+
+Next is the estimation part: 
+- if we have blocking design (or volatility clustering), then max-mean 
+- otherwise, we may use the estimated volatility state from a HMM. (temporarily)
+
+### Scan along the data sequence
+
+This part is only for exploration (because it is only used to mimic the procedure in G-VaR paper.) 
+
+If we scan over the whole sequence, since each time we only consider one future point and the next one may not belong to the same future density, it is essentially different from our discussion on the future density, unless we have the blocking design (or clustering property in the sequence: that is the points that are close to each other can be approximated by the same probabilistic model.)
+
+```{r}
+y.seq <- y.seq0
+y.seq.train <- y.seq[-c(N-1,N)]
+y.mov.mat.re <- get.mov.seq(y.seq.train, window.size = 1e3)
+ind.mov.mat <- y.mov.mat.re$ind.mat
+y.mov.mat <- y.mov.mat.re$y.mat
+```
+
+
+```{r}
+#upcdf.semiGnorm(0.5)
+# q.seq <- seq(-10, 10,.1)
+# prob.seq <- sapply(q.seq, upcdf.semiGnorm)
+# plot(q.seq, prob.seq, type = "l")
+# 
+# p <- 0.1
+# re <- uniroot(function(q) psemiGnorm.bisum(q)-p, interval = c(-10,10))
+#re$root
+
+```
+
+```{r}
+#check the VaR performance by moving the time window
+win.size <- ncol(y.mov.mat)
+win.num <- nrow(y.mov.mat)
+par.num <- rnorm(1e3) %>% par.est.VaR %>% length
+hmm.test.mat <- garch.test.mat <- semiG.test.mat <- matrix(NA, nrow = win.num, ncol = par.num)
+for (i in seq_len(win.num)){
+  y.seq.sub <- y.mov.mat[i,]
+  ind.sub <- ind.mov.mat[i,]
+  ind.future <- ind.sub[win.size] + c(1,2) #n.pred=2
+  y.future <- y.seq[ind.future]
+  y.future.sum <- sum(y.future)
+  # var.hmm.re <- suppressMessages(summary.future.hmm(y.seq.sub, silent.ind = TRUE, 
+  #                                  par.est = par.est.VaR))
+  # var.hmm <- var.hmm.re$moment.est
+  # 
+  # hmm.test.mat[i,] <- (y.future.sum < -var.hmm)
+  #garch part
+  
+  #the semi-version of G-VaR 
+  semiG.test.mat[i,] <- (y.future.sum < -var.semiG)
+}
+
+#check the %viol
+hmm.test.prop <- apply(hmm.test.mat, 2, cummean)
+matplot(hmm.test.prop, type = "l")
+
+
+hmm.test.mat %>% 
+  apply(.,2,function(x) get.meanseq.sum(x, n.guess = 1e2, step = 1)) %>% 
+  matplot(.,type = "l")
+
+hmm.test.prop.mov <- apply(hmm.test.mat, 2, 
+                           function(x) get.meanseq.sum(x, n.guess = 1e2, step = 1))
+#hmm.test.prop.mov2 <- t(apply(hmm.test.prop.mov, 1, function(x) x-c(.01,.05,.1)))
+#matplot(hmm.test.prop.mov2, type = "l")
+matplot(hmm.test.prop.mov, type = "l", lwd = 1.5, ylim = c(0,.12))
+abline(h = c(.01,.05,.1), col = "grey", lty = 3)
+#check the moving average 
+```
+
+
+```{r}
+#compare it with the semi-version of G-VaR
+semiG.test.mat %>% 
+  apply(.,2,function(x) get.meanseq.sum(x, n.guess = 1e2, step = 1)) %>% 
+#  apply(.,1,function(x) x-c(.01,.05,.1)) %>% 
+  matplot(.,type = "l", ylim = c(0,.12))
+abline(h = c(.01,.05,.1), col = "grey", lty = 3)
+#almost no violation 
+#we need to have more blocking design here 
+```
+
+
+
+Next we can 
+- consider the generation scheme without the dependence structure (to see whether the performance of traditional methods will be fine.)
+- if the performance is closer to the nonlinear version, but it is different in real dataset, then it means we cannot say this dependence does not exist in real data practice (o.w. we should we have the close performances). 
+- in order to consider the effects from exogenous variable, we may partially filter out this information by considering the exogenous effects (e.g. the economic policy uncertainty index), so that we can further compare the nonlinear risk measure methods with the traditional methods. 
+
+```{r}
+#check the binomial test 
+```
+
+
+## Discussions
+
+The key idea is the current history (or path) may have systematic impact on the future (it may have impact on the probability rule of the future.)
+
+Given the current history, the probability rule of the future is fixed, but how the current history decide the probability rule of the future is unknown: it hard to approximate or make inference if we using traditional statistical methods where we assume a fixed, perhaps sophisticated probability rule to be approximated.
+
+```{r}
+#also illustrate the Value at Risk 
+
+```
+
+Also illustrate the performance of the envelope when we make the volatility regime switching rule more complicated (completely change the switching rule and also add more possible scenarios.) Check the performance of this envelope. 
+(the idea is like a stress test, but on the level of the model itself.)
+
+# Version 2 (long seq)
+
+By changing the hidden dependence, it produce a sequence that has the blocking design (or more volatility clustering). In this case, we can also use traditional statistical procedure to model this sequence. However, the model uncertainty is still unchanged and it stays as an issue to be considered. 
+
+## Alice Side
+
+```{r}
+## Initialization
+#Alice side
+#generate longer sequence
+set.seed(1) #to be removed
+N <- 2e3
+sdl0 <- 0.5
+sdr0 <- 2
+set.sd <- c(sdl0, sdr0)
+sig.seq <- y.seq <- S.seq <- numeric(N)
+theta.seq <- numeric(N-1) #theta.seq[i] is used from time i to i+1
+#Initialization 
+
+#time t=1
+sig.seq[1] <- sample(set.sd, 1)
+ep.seq <- rnorm(N) #our main focus is the sigma sequence 
+theta.seq[1] <- sample(c(0,1,2,3),1)
+y.seq[1] <- sig.seq[1]*ep.seq[1]
+S.seq[1] <- y.seq[1] 
+
+#from t=1 to t=2
+ind.scene <- number2binary(theta.seq[1], noBits = 2) + 1 
+#transfer 1 to (1,1), to check, run the code below
+#sapply(0:3, function(x) number2binary(x, noBits = 2) + 1)
+sd.vec <- set.sd[ind.scene] #choose from the four possible scenarios
+sig.seq[2] <- ifelse(y.seq[1]>0, sd.vec[1], sd.vec[2])
+y.seq[2] <- sig.seq[2]*ep.seq[2]
+S.seq[2] <- sum(y.seq[seq_len(2)])
+
+#from time 3 to N
+for (i in seq(2,N-1,1)){
+  #get the sig at time i+1
+  #we also compute the theta.seq[i] which is used from time i to i+1
+  #from time i to i+1, or write it as [i,i+1]
+  re <- prob.sigRS.rule(sig.now = sig.seq[i], 
+                        ep.now = ep.seq[i], 
+                        info.pre = S.seq[i-1], 
+                        theta.choose = theta.choose3)
+  theta.seq[i] <- re$theta.nextperiod #record the theta used in [i,i+1]
+  sig.seq[i+1] <- re$sig.next
+  y.seq[i+1] <- sig.seq[i+1]*ep.seq[i+1]
+  S.seq[i+1] <- sum(y.seq[seq_len(i+1)])
+}
+
+dat.history0 <- data.frame(y.seq = y.seq, sig.seq=sig.seq, S.seq=S.seq, ep.seq=ep.seq)
+
+list.history0 <- list(y.seq = y.seq, 
+                     sig.seq=sig.seq, 
+                     ep.seq=ep.seq, 
+                     S.seq=S.seq, 
+                     theta.seq=theta.seq)
+```
+
+## Bob Side
+
+### EDA
+
+```{r}
+#Bob side 
+#EDA 
+#if we make info.pre = S.seq[i]/i, it will approach zero
+#plot the last 1st point
+  plot(y.seq, type = "l")
+  plot(abs(y.seq), type = "l")
+  plot(y.seq^2, type = "l")
+  plot(y.seq^3, type = "l")
+  
+  #we can also make it into a time series if needed 
+  plot(S.seq, type = "l")
+  #plot(S.seq/sqrt(seq_along(S.seq)), type = "l")
+  #plot(S.seq/seq_along(S.seq), type = "l")
+  #also check the LIL
+  #ind.seq <- seq_along(S.seq)[-seq_len(20)]
+  #plot(S.seq[-seq_len(20)]/sqrt(ind.seq*log(log(ind.seq))), type = "l")
+  acf(y.seq)
+  acf(abs(y.seq))
+  acf(y.seq^2) #it has some volatility clustering
+  acf(y.seq^3)
+  hist.den(y.seq)
+  #compute the skewness
+  #plot(theta.seq[1:400], type = "l")
+  #plot(sig.seq[1:400], type = "l")
+```
+
+```{r}
+qqnorm(y.seq)
+qqline(y.seq, col=2)
+```
+
+# Time Series Design 
+
+## AR(1)
+```{r}
+beta <- 0.6
+#plot(y.seq, type = "l")
+x.seq <- numeric(N)
+x.seq[1] <- y.seq[1]
+for (i in seq_len(N-1)){
+  x.seq[i+1] <- beta*x.seq[i] + y.seq[i+1]
+}
+x.ts <- ts(data = x.seq)
+plot(x.ts)
+```
+
+```{r}
+#Then the next step is the discussion of estimation
+#consider the confidence interval in this context 
+```
+
+## MA(1)
+
+This example is based on the previous long version of two-vol data example. 
+Possible questions to think about: 
+- illustrate the covariance uncertainty 
+
+Our assumptions is that if we fix our window to $n=2$, the data sequence may have inhomogenous dynamic when we look at the window:
+$$
+(Y_{t},Y_{t+1})=(\sigma_t\epsilon_t,\sigma_{t+1}\epsilon_{t+1}),
+$$
+then consider the expected behavior of the bivariate vector under a transformation $\varphi$:
+$$
+\mathbb{E}[\varphi(Y_t,Y_{t+1})].
+$$
+This expectation may change as we move the window forward (or $t$ increases).
+
+Here we can choose a special case of $\varphi$ and we will first consider 
+$$
+X_{t+1}=Y_t+\theta Y_{t+1},
+$$
+where $\theta \in (-1,1)$ is a fixed parameter. 
+
+By assuming different family of models (or different degree of model uncertainty) on the dynamic of $\sigma_t$, it will lead to the sublinear expectation of $(W_t,W_{t+1})$ under different setup of independence. 
+
+Here we first assume 
+$$
+(W_{t},W_{t+1})\overset{d}{=} (W_1,W_2).
+$$
+
+
+Later on we can also consider $Y_t$ to be 
+
+
+## ARMA(1,1)
+
+
+# Illustration of Asymmetric (Sequential) Independence and third moment uncertainty
+
+## Main setup 
+
+```{r}
+#also change it to other kinds of switching examples
+#set up global parameters
+step0 <- 1e2 #the step size for moving windows
+#step0 <- 50
+gr.size0 <- 2e3 #group size
+gr.num0 <- 1e2 #the number of groups
+sdl <- 1
+sdr <- 2
+```
+
+## (W1+W2)^3
+
+### Seq indep
+
+```{r}
+set.seed(250881732)
+#set.seed(314159)
+#check
+#standardized
+#varphi.bi <- function(x) sum(x)*(1/sqrt(2)) 
+
+varphi.bi <- function(x) sum(x)
+#also change the associated values 
+
+#m is the number of groups 
+w1w2.array <- rbisemiGnorm.seqind(n = gr.size0, 
+                                  m = gr.num0)
+varphi.mat <- apply(w1w2.array, c(2,3), varphi.bi)
+varphi.seq <- as.numeric(varphi.mat)
+```
+
+```{r}
+png("linesplot-w1w2-seqind.png", width = 646, height = 369)
+v1 <- c(0, gr.size0)
+v2 <- 15*step0+c(0, gr.size0)
+#ylim1 <- c(-6.5,8)
+ylim1 <- c(-8,10)
+ylim <- ylim1+c(-1,1)
+#plot(varphi.seq, type = "l")
+check.seq <- varphi.seq[2e3+seq_len(8e3)]
+plot(check.seq, type = "l", 
+     ylab = "Value of Y_t", xlab = "t", 
+     main = "Linesplot of Y_t=W1_t+W2_t (seq-indep)", 
+     ylim = ylim1)
+abline(h=0, lty=3)
+abline(v=v1, col="red", lty=2)
+abline(v=v2, col="blue", lty=2)
+polygon(x=c(v1,rev(v1)), y=rep(ylim, each=2), col = alpha("red", 0.4),
+        border = NA)
+polygon(x=c(v2,rev(v2)), y=rep(ylim, each=2), col = alpha("blue", 0.4),
+        border = NA)
+dev.off()
+#add ribbon in between 
+```
+
+```{r}
+plot(cumsum(check.seq), type = "l")
+```
+
+```{r}
+acf(check.seq)
+acf(check.seq^2)
+```
+
+```{r}
+plot(check.seq^2, type = "l")
+```
+
+```{r}
+#slln check
+#x^3
+#c1 <- 3/(4*sqrt(pi)) #checked for (W1+W2)/sqrt(2)
+c1 <- 3/(4*sqrt(pi))*2*sqrt(2) #checked for (W1+W2)
+par.true3 <- c1*(sdr^2-sdl^2)*sdr*c(-1,1)
+re <- slln.check.f(f = function(x) x^3, x.seq = varphi.seq, 
+             gr.size = gr.size0, step = step0, par.true = par.true3, 
+             main  = "E[(W1+W2)^3],seq-indep.", 
+             maxmin.mean.plot = TRUE,
+             save.plot = TRUE, filename = "Figs/seqind-sum-W1W2-moment-3", ylim = c(-31, 31))
+
+#also check the concentration inequality in this case
+#make the lines lighter 
+#save the image 
+#change the simulation to "full" (to go through more possible scenarios)
+#formalize our discussion here (we use this sublinear expectation to cover possible scenarios)
+```
+
+```{r}
+matplot(re$n.seq, re$cummeanf.mat[-re$ind.ex1,], type = "l")
+#only plot the max and min mean
+
+maxmin.mean <- apply(re$cummeanf.mat[-re$ind.ex1,], 1, 
+                     function(x) c(min(x),max(x)))
+maxmin.mean <- t(maxmin.mean)
+matplot(re$n.seq, maxmin.mean, type = "l")
+```
+
+
+It will be interesting to see whether there is a concentration bound for these plots. 
+
+```{r}
+#x^2
+#par.true2 <- c(sdl, sdr)^2
+par.true2 <- 2*c(sdl, sdr)^2
+re <- slln.check.f(f = function(x) x^2, x.seq = varphi.seq, 
+             gr.size = gr.size0, step = step0, par.true = par.true2, 
+             main = "E[(W1+W2)^2],seq-indep.", save.plot = TRUE, filename = "Figs/seqind-sum-W1W2-moment-2")
+```
+
+```{r}
+par.true1 <- 0
+re1 <- slln.check.f(f = function(x) x, x.seq = varphi.seq, 
+             gr.size = gr.size0, step = step0, par.true = par.true1, 
+             main = "E[(W1+W2)],seq-indep.", prop.ex = 1/50, save.plot = TRUE, filename = "Figs/seqind-sum-W1W2-moment-1")
+```
+
+### Semi-seq indep
+
+```{r}
+#semi-seq indep
+set.seed(250881732)
+#set.seed(314159)
+#check
+#varphi.bi <- function(x) sum(x)*(1/sqrt(2)) 
+#standardized
+#also change the associated values 
+
+w1w2.array2 <- rbisemiGnorm.semiseqind(n = gr.size0, 
+                                  m = gr.num0)
+varphi.mat2 <- apply(w1w2.array2, c(2,3), varphi.bi)
+varphi.seq2 <- as.numeric(varphi.mat2)
+```
+
+```{r}
+#plot(varphi.seq, type = "l")
+png("linesplot-w1w2-semiseqind.png", width = 646, height = 369)
+v1 <- c(0, gr.size0)
+v2 <- 15*step0+c(0, gr.size0)
+ylim1 <- c(-8,10)
+ylim <- ylim1 + c(-1,1)
+#plot(varphi.seq, type = "l")
+check.seq2 <- varphi.seq2[2e3+seq_len(8e3)]
+plot(check.seq2, type = "l", 
+     ylab = "Value of Y_t", xlab = "t", 
+     main = "Linesplot of Y_t=W1_t+W2_t (semi-seq-indep)", 
+     ylim = ylim1)
+abline(h=0, lty=3)
+abline(v=v1, col="red", lty=2)
+abline(v=v2, col="blue", lty=2)
+polygon(x=c(v1,rev(v1)), y=rep(ylim, each=2), col = alpha("red", 0.4),
+        border = NA)
+polygon(x=c(v2,rev(v2)), y=rep(ylim, each=2), col = alpha("blue", 0.4),
+        border = NA)
+dev.off()
+#add ribbon in between 
+```
+
+
+```{r}
+plot(cumsum(check.seq2), type = "l")
+```
+
+```{r}
+acf(check.seq2)
+acf(check.seq2^2)
+```
+
+```{r}
+plot(check.seq2^2, type = "l")
+```
+
+```{r}
+#slln check
+#x^3
+par.true3 <- 0
+re <- slln.check.f(f = function(x) x^3, x.seq = varphi.seq2, 
+             gr.size = gr.size0, step = step0, par.true = par.true3, 
+             main = "E[(W1+W2)^3],semi-seq-indep.", save.plot = TRUE, filename = "Figs/semiseqind-sum-W1W2-moment-3", ylim = c(-31, 31))
+#also check the concentration inequality in this case
+#make the lines lighter 
+#save the image 
+#change the simulation to "full" (to go through more possible scenarios)
+#formalize our discussion here (we use this sublinear expectation to cover possible scenarios)
+```
+
+It will be interesting to see whether there is a concentration bound for these plots. 
+
+```{r}
+#x^2
+#par.true2 <- c(sdl, sdr)^2
+par.true2 <- 2*c(sdl, sdr)^2
+re <- slln.check.f(f = function(x) x^2, x.seq = varphi.seq, 
+             gr.size = gr.size0, step = step0, par.true = par.true2, 
+             main = "E[(W1+W2)^2],semi-seq-indep.", save.plot = TRUE, filename = "Figs/semiseqind-sum-W1W2-moment-2")
+```
+
+```{r}
+par.true1 <- 0
+re1 <- slln.check.f(f = function(x) x, x.seq = varphi.seq, 
+             gr.size = gr.size0, step = step0, par.true = par.true1, 
+             main = "E[(W1+W2)],semi-seq-indep.", prop.ex = 1/50, save.plot = TRUE, filename = "Figs/semiseqind-sum-W1W2-moment-1")
+```
+
+
+## Concentration Boundaries 
+
+To further illustrate, that for $(W_1+W_2)$, it does converge to zero, 
+we may apply the concentration inequalities in this framework. 
+
+[] Add a discussion on the derivation (from previous note) of the concentration inequality. 
+
+```{r}
+#set.seed(314159)
+#check
+#standardized
+#also change the associated values 
+
+#m is the number of groups 
+# w1w2.array <- rbisemiGnorm.seqind(n = gr.size0, 
+#                                   m = 1e2)
+# varphi.mat <- apply(w1w2.array, c(2,3), varphi.bi)
+# varphi.seq <- as.numeric(varphi.mat)
+
+#sequential independence 
+par.true1 <- 0
+re1 <- slln.check.f(f = function(x) x, x.seq = varphi.seq, 
+             gr.size = gr.size0, step = step0, par.true = par.true1, 
+             main = "E[(W1+W2)],seq-indep.", prop.ex = 1/50, save.plot = FALSE, filename = "Figs/semiseqind-sum-W1W2-moment-1", add.plot = FALSE)
+```
+
+
+```{r}
+#concentration inequality
+#also re-compute the bounds
+
+#double check it
+#under the scaling 
+#fl <- function(n, alpha=.1) -sdr*sqrt(2/(n*alpha))*(1/sqrt(2))
+#fr <- function(n, alpha=.1) sdr*sqrt(2/(n*alpha))*(1/sqrt(2))
+
+#without the scaling
+fl <- function(n, alpha=.1) -sdr*sqrt(2/(n*alpha))
+fr <- function(n, alpha=.1) sdr*sqrt(2/(n*alpha))
+
+#lines(n.seq, fl(n.seq), col = "blue")
+#lines(n.seq, fr(n.seq), col = "blue")
+
+#use the existing result
+fr.new <- function(n, alpha=.01){
+  C <- 2^(5/2)*sdr
+  #C <- sdr
+  lnA <- log(alpha)
+  a <- n/(-2*lnA)
+  b <- -C
+  c <- -sdr^2 
+  Delta <- b^2-4*a*c
+  ep1 <- (-b+sqrt(Delta))/(2*a)
+  #ep2 <- (-b-sqrt(Delta))/(2*a)
+  #c(ep1,ep2)
+  ep1*(1/sqrt(2))
+}
+fl.new <- function(n, alpha=.01){
+  -fr.new(n, alpha = alpha)
+}
+
+```
+
+```{r}
+png(file = "Figs/bounds-seqind-sum-w1w2.png", width = 840, height = 550)
+#Previously use pdf (the file size is too large)
+with(re1,
+{matplot(n.seq,
+        cummeanf.mat[-ind.ex1, ], type = "l",
+        xlab = "i", ylab = "cumavg",
+        main = "E[(W1+W2)],seq-indep.", col = alpha(1:6, 0.5), 
+        cex.lab = 1.5, cex.main = 1.5)
+abline(h=par.true, col = "brown")
+lines(n.seq, fl(n.seq), col = "blue", lwd=1.2)
+lines(n.seq, fr(n.seq), col = "blue", lwd=1.2)
+lines(n.seq, fl.new(n.seq), col = "red", lwd=1.2)
+lines(n.seq, fr.new(n.seq), col = "red", lwd=1.2)
+legend("topright", legend = c("Chebyshev", "Bernstein"),
+       col = c("blue", "red"), lty = c(1,1), cex = 1.5)}
+)
+dev.off()
+```
+
+```{r}
+#we can check that the violation rate from upper or lower envelope is approximately equal
+```
+
+
+## Seq indep
+
+### W1*W2^2
+
+```{r}
+set.seed(250881732)
+#set.seed(314159)
+#check
+varphi.bi <- function(x) x[1]*x[2]^2
+#standardized
+#also change the associated values 
+
+#m is the number of groups 
+w1w2.array <- rbisemiGnorm.seqind(n = gr.size0, 
+                                  m = gr.num0, #get many more groups
+                                  set.uncertainty = "full")
+varphi.mat <- apply(w1w2.array, c(2,3), varphi.bi)
+varphi.seq3 <- as.numeric(varphi.mat)
+```
+
+```{r}
+#x1x2^2 
+#modify the plots
+c1 <- 1/sqrt(2*pi) #checked for (W1+W2)/sqrt(2)
+par.true3 <- c1*(sdr^2-sdl^2)*sdr*c(-1,1)
+re <- slln.check.f(f = function(x) x, x.seq = varphi.seq3, 
+             gr.size = gr.size0, step = step0, par.true = par.true3, 
+             main = "E[W_1*W_2^2],seq-indep.", save.plot = TRUE, filename = "Figs/seqind-W1W2^2", ylim = c(-5,5))
+```
+
+### W1^2*W2
+
+```{r}
+set.seed(250881732)
+#set.seed(314159)
+#check
+varphi.bi <- function(x) x[1]^2*x[2]
+#standardized
+#also change the associated values 
+
+#m is the number of groups 
+# w1w2.array <- rbisemiGnorm.seqind(n = gr.size0, 
+#                                   m = gr.num0)
+varphi.mat <- apply(w1w2.array, c(2,3), varphi.bi)
+varphi.seq4 <- as.numeric(varphi.mat)
+```
+
+```{r}
+#x1^2*x2 
+par.true4 <- 0
+re <- slln.check.f(f = function(x) x, x.seq = varphi.seq4, 
+             gr.size = gr.size0, step = step0, par.true = par.true4, 
+             main = "E[W_1^2*W_2],seq-indep.", save.plot = TRUE, filename = "Figs/seqind-W1^2W2", ylim = c(-5,5))
+```
+
+## Semi-seq indep
+
+### W1*W2^2
+
+```{r}
+set.seed(250881732)
+#set.seed(314159)
+#check
+varphi.bi <- function(x) x[1]*x[2]^2
+#standardized
+#also change the associated values 
+
+#m is the number of groups 
+w1w2.array <- rbisemiGnorm.semiseqind(n = gr.size0, 
+                                  m = gr.num0, #get many more groups
+                                  set.uncertainty = "full")
+varphi.mat <- apply(w1w2.array, c(2,3), varphi.bi)
+varphi.seq3 <- as.numeric(varphi.mat)
+```
+
+```{r}
+#x1x2^2 
+#modify the plots
+par.true3 <- 0
+re <- slln.check.f(f = function(x) x, x.seq = varphi.seq3, 
+             gr.size = gr.size0, step = step0, par.true = par.true3, 
+             main = "E[W_1*W_2^2],semi-seq-indep.", save.plot = TRUE, filename = "Figs/semiseqind-W1W2^2-full", ylim = c(-5,5))
+```
+
+### W1^2*W2
+
+```{r}
+#set.seed(314159)
+#check
+varphi.bi <- function(x) x[1]^2*x[2]
+#standardized
+#also change the associated values 
+
+#m is the number of groups 
+# w1w2.array <- rbisemiGnorm.seqind(n = gr.size0, 
+#                                   m = gr.num0)
+varphi.mat <- apply(w1w2.array, c(2,3), varphi.bi)
+varphi.seq4 <- as.numeric(varphi.mat)
+```
+
+```{r}
+#x1^2*x2 
+par.true4 <- 0
+re <- slln.check.f(f = function(x) x, x.seq = varphi.seq4, 
+             gr.size = gr.size0, step = step0, par.true = par.true4, 
+             main = "E[W_1^2*W_2],semi-seq-indep.", save.plot = TRUE, filename = "Figs/semiseqind-W1^2W2-full", ylim = c(-5,5))
+```
+
+
+# Estimation method related to semi-G-normal 
+
+## aggregation of interval
+
+```{r}
+#draw the log likelihood function 
+l <- function(sig, x=1){
+  n <- length(x)
+  #directly consider log likelihood
+  #- log(sig)*n - sum(x^2)/(2*sig^2) 
+  #consider likelihood to make it positvie
+  (sqrt(2*pi)*sig)^(-n)*exp(-sum(x^2)/(2*sig^2))
+  #(1/sqrt(2*pi))*(1/sig)*exp(-x^2/(2*sig^2))
+}
+
+l.neg <- function(sig, x=1){
+  -l(sig=sig, x=x)
+}
+
+x1 <- c(-2,3,1)
+plot(l, from = 0.5, to = 3)
+plot(function(s) l(s, x=x1), from = 0.5, to = 10)
+re <- optimize(l.neg, interval = c(0.1, 10), x=x1)
+re
+sqrt(mean(x1^2))
+#MLE for sig^2 is x^2 
+
+re <- integrate(l, 1, 2, x = 2)
+re$value
+sapply(x1, function(a) integrate(l, 1, 2, x = a)$value)
+```
+
+
+```{r}
+#A function 
+
+A <- function(sdl, sdr, x){
+  # for (i in seq_along(x)){
+  #   
+  # }
+  l.sum <- function(sig){
+    re <- sapply(x, function(a) l(sig=sig, x=a))
+    sum(re)
+  }
+  
+  integrate(Vectorize(l.sum), sdl, sdr)$value
+  #vec <- sapply(x, function(a) integrate(l, sdl, sdr, x=a)$value)
+  #sum(vec)
+  #re <- integrate(l, sdl, sdr, x=x)
+  #abs(re$value)
+}
+
+#A(1, 2, c(-2, 2, 0))
+#A(1,2,x1)
+r <- function(sdl, delta, x){
+  -A(sdl, sdl+delta, x)
+}
+
+#r(1,1, x1)
+#compute R function 
+R <- function(arg, x, lambda = log(length(x)), 
+              pen = function(x) x^2){
+  #how to choose lambda and the pen function is important
+  sdl <- arg[1]; delta <- arg[2]
+  r(sdl,delta,x) + lambda*pen(delta)
+}
+#one attempt
+```
+
+
+```{r}
+set.seed(123)
+x2 <- rnorm(1e3, sd = 2)
+s3 <- rsemiGnorm(1e3, 1, 2, gr.len.mean = 1e2)
+z3 <- s3$z.seq
+x3 <- s3$w.seq
+plotl(z3)
+plotl(x3)
+#sd(x3)
+
+R(c(1,0), x=x2) #from sdl to sdl
+
+R(c(1,0.5), x=x2)
+R(c(2,0.5), x=x2)
+R(c(2,0.2), x=x2)
+
+R(c(1,0.5), x=x3)
+R(c(1,1), x=x3)
+R(c(1,2), x=x3)
+R(c(1,3), x=x3)
+R(c(1,4), x=x3)
+```
+
+```{r}
+re2 <- optim(c(1,0.5), R, x = x2, lower = c(0,0), method = "L-BFGS-B")
+re2
+
+re3 <- optim(c(1,0.5), R, x = x3, lower = c(0,0), method = "L-BFGS-B")
+re3
+```
+
+```{r}
+#whether the blocking information will bring in more improvement on the estimation
+
+```
+
+
+## point-interval transformation 
+
+```{r}
+#generate a semi-G-normal sample 
+set.seed(123)
+sd.intvl <- c(1,2)
+var.intvl <- sd.intvl^2
+N <- 2e3
+z <- rmaximal(N, min = sd.intvl[1], max = sd.intvl[2], gr.len.mean = 200)
+plotl(z)
+w <- z*rnorm(N)
+plotl(w)
+
+#square it 
+n.guess <- 200
+w2 <- w^2
+
+max.mean(w2, n.guess = n.guess)
+
+w2.mat <- matrix(w2, ncol = n.guess, byrow = TRUE)
+w2.intvl <- apply(w2.mat, 2, function(x) c(min(x), max(x))) #range in Gframeintvl.R is masked
+#get the convex hull
+
+w2.intvl <- w2.intvl %>% t %>% mat2intvl
+plot.intvl(w2.intvl)
+
+apply(w2.intvl, 2, mean)
+
+var.intvl
+#this is the interval from interval-valued data view
+
+
+```
+
+```{r}
+#other way to produce the interval
+#a way that is equivalent to max-mean method 
+#transform the data to interval-valued 
+
+# w2.cen <- apply(w2.mat, 2, mean)
+w.mat <- matrix(w, ncol = n.guess, byrow = TRUE)
+w.cen <- apply(w.mat, 2, mean)
+
+plotl(w[seq_len(n.guess)])
+
+matplot(t(w.mat), type = "l", col = alpha("gray", 0.7))
+lines(w.cen, col = 2)
+
+w.cen.std <- scale(w.cen)
+#w.cen.std <- (w.cen - mean(w.cen))/sd(w.cen)
+mean(w.cen.std) #almost zero
+#check whether we remove the mean part or not
+#consider the randomness of the center part itself; or remove the bias of the center part itself
+plotl(w.cen.std)
+sd.set <- apply(w.mat, 1, sd)
+#sd.set
+sd.intvl <- c(min(sd.set), max(sd.set))
+e.intvl <- cbind(w.cen.std,w.cen.std) 
+v.intvl <- rconstant.intvl(nrow(e.intvl), sd.intvl)
+w.intvl <- v.intvl*e.intvl
+plot.intvl(w.intvl) #one version of the interval-valued data
+w.intvl.sq <- apply.intvl0(w.intvl, function(x) x^2)
+apply(w.intvl.sq, 2, mean)
+
+#compare these two methods
+#the second one is more like performing the estimation again (so far I do not expect them to be so different)
+```
+
+```{r}
+#ind.sub <- 1:50
+ind.sub <- 1:200
+matplot(t(w.mat)[ind.sub,], type = "l", col = alpha("gray", 0.7))
+lines(w.intvl[ind.sub,1], col = "blue")
+lines(w.intvl[ind.sub,2], col = "red")
+```
+
+After packing the estimation above into a function, we get
+
+```{r}
+re <- point.intvl.est(w, n.guess = 200)
+re$est.intvl
+```
+
+
+
+```{r}
+#another way to show the interval valued data 
+#produce an interval-valued data with the same length as the original sequence. 
+#use the same sd.intvl
+#scale each group of sequence to get the noise
+
+# sd.seq <- rep(sd.set, each = length(w)/n.guess)
+# plotl(sd.seq)
+
+w.mat.std <- t(apply(w.mat, 1, scale))
+w.seq.std <- as.numeric(w.mat.std)
+plotl(w.seq.std)
+
+e.intvl <- cbind(w.seq.std,w.seq.std) 
+v.intvl <- rconstant.intvl(nrow(e.intvl), sd.intvl)
+w.intvl2 <- v.intvl*e.intvl
+plot.intvl(w.intvl2) #one version of the interval-valued data
+w.intvl.sq2 <- apply.intvl0(w.intvl2, function(x) x^2)
+apply(w.intvl.sq2, 2, mean)
+
+#then scale the whole noise dataset by sd.intvl
+
+#then also show the estimated variance interval
+
+```
+
+
+## comparison with max-mean method
+
+- consider different setups (different way to perform a pseudo simulation of maximal, or more precisely, a pseudo simulation of a scenario with distributional uncertainty described by maximal)
+
+```{r}
+#repeat the procedure many times to check the performance
+```
+
+
+```{r}
+#general comparison 
+n.guess <- 200
+var.intvl <- sd.intvl^2
+est.mat <- replicate(1e3, {
+  w <- rsemiGnorm(2e3, sig.low = sd.intvl[1], sig.up = sd.intvl[2], 
+                  gr.len.mean = 200, rmaximal.k = rmaximal)$w.seq
+  est.mm <- max.mean(w^2, n.guess = n.guess)
+  est.pi <- point.intvl.est(w, n.guess = n.guess)$est.intvl
+  
+  #mat.re <- rbind(est.mm-var.intvl, est.pi-var.intvl)
+  #rownames(mat.re) <- c("max-mean", "point-intvl") 
+  #colnames(mat.re) <- c("varl.est.diff", "varr.est.diff")
+  
+  mat.re <- rbind(est.mm, est.pi)
+  rownames(mat.re) <- c("max-mean", "point-intvl")
+  colnames(mat.re) <- c("varl.est", "varr.est")
+  mat.re
+})
+```
+
+```{r}
+#draw the histogram 
+p1 <- hist(est.mat[1,1,])
+p2 <- hist(est.mat[2,1,])
+plot(p1, col = rgb(0,0,1,1/4), main = paste("comparison for sdl.est"))
+plot(p2, col = rgb(1,0,0,1/4), add = TRUE) #very close to each other
+abline(v = var.intvl[1], col = 2)
+
+p1 <- hist(est.mat[1,2,], breaks = "scott")
+p2 <- hist(est.mat[2,2,], breaks = "scott")
+plot(p1, col = rgb(0,0,1,1/4))
+plot(p2, col = rgb(1,0,0,1/4), add = TRUE) 
+abline(v = var.intvl[2], col = 2)
+
+#bias and variance
+# est.mat.diff <- apply(est.mat, 3, function(x){
+#   x-rbind(var.intvl, var.intvl)
+# })
+
+est.mat.diff <- est.mat
+# typeof(est.mat.diff[,1,])
+d <- dim(est.mat.diff[,1,])
+est.mat.diff[,1,] <- est.mat.diff[,1,] - matrix(var.intvl[1], d[1], d[2])
+est.mat.diff[,2,] <- est.mat.diff[,2,] - matrix(var.intvl[2], d[1], d[2])
+
+(est.mat.bias <- apply(est.mat.diff, c(1,2), mean))
+(est.mat.var <- apply(est.mat.diff, c(1,2), sd))
+#compute bias and variance
+
+```
+
+# Test of model structure
+
+## General setup
+
+```{r}
+N <- 5e3
+sdl <- 1; sdr <- 2
+sd.intvl <- c(sdl,sdr)
+```
+
+## First try
+
+```{r}
+ep <- rnorm(N)
+y <- sdl*ep
+for (i in seq_len(N-1)){
+  y[i+1] <- ifelse(y[i]>0, sdr, sdl)*ep[i+1]
+}
+
+plotl(y)
+```
+
+```{r}
+#A <- y[-1]+y[-N]
+k <- seq_len(N/2)
+A <- y[2*k-1] + y[2*k]
+plotl(A)
+```
+
+```{r}
+varphi <- function(x) x^3
+B <- varphi(A)
+plotl(B)
+hist(B)
+```
+
+```{r}
+#redefine qGnorm
+# qGnorm.upper <- qGnorm
+# qGnorm.lower <- function(p, sdl, sdr){
+#   -qGnorm.upper(1-p, sdl=sdl, sdr=sdr)
+# }
+```
+
+```{r}
+m <- length(B)
+test.stat <- sqrt(m)*mean(B)
+test.stat
+
+alpha <- 0.05
+sdl.test <- sqrt(8*15*sdl^6)
+sdr.test <- sqrt(8*15*sdr^6)
+
+#under H0, the limiting distribution should be semi-G-normal
+
+crit.val <- qSemiGnorm(1-alpha/2, 
+                   sdl = sdl.test, 
+                   sdr = sdr.test, 
+                   upper = FALSE)
+crit.val
+abs(test.stat) > crit.val
+#to compare
+# qGnorm(1-alpha/2, 
+#                    sdl = sdl.test, 
+#                    sdr = sdr.test, 
+#                    upper = FALSE)
+
+#it is quite small
+2*(1-pSemiGnorm(abs(test.stat), upper = FALSE, 
+           sdl = sdl.test, sdr = sdr.test))
+#abs is important
+
+#equivalently
+test.stat1 <- test.stat/sdr.test
+sdl.test1 <- (sdl/sdr)^3
+sdr.test1 <- 1
+#compute the two-sided V-value
+2*(1-pSemiGnorm(abs(test.stat1), upper = FALSE, 
+           sdl = sdl.test1, sdr = sdr.test1))
+```
+
+```{r}
+test.modelstructure(y, sdl.test = sdl.test, sdr.test = sdr.test,
+                    return.ind = FALSE, print.ind = TRUE)
+```
+
+## Type II error
+
+```{r}
+#repeat this procedure many times 
+#the rule is in Ha
+#to check the type II error 
+set.seed(123)
+V.val.seq <- replicate(1e3, {
+  ep <- rnorm(N)
+  y <- sdl*ep
+for (i in seq_len(N-1)){
+  y[i+1] <- ifelse(y[i]>0, sdr, sdl)*ep[i+1]
+}
+  re <- test.ms(y, sdl.test, sdr.test)
+  #report the upper p values (the largest p-value)
+  re$upper.p.value
+ # #A <- y[-1]+y[-N]
+ # k <- seq_len(N/2)
+ # A <- y[2*k-1] + y[2*k]
+ # B <- varphi(A)
+ # m <- length(B)
+ # test.stat <- sqrt(m)*mean(B)
+ # #test.stat
+ # # sdl.test <- sqrt(8*15*sdl^6)
+ # # sdr.test <- sqrt(8*15*sdr^6)
+ # 2*(1-pSemiGnorm(abs(test.stat), upper = FALSE, 
+ #           sdl = sdl.test, sdr = sdr.test))
+})
+```
+
+```{r}
+hist(V.val.seq)
+#type II error
+mean(V.val.seq > 0.05)
+
+#also check the power
+mean(V.val.seq <= 0.05)
+#if using G-normal cdf, type II error is approx 0.003
+```
+
+
+```{r different rule Ha}
+#repeat this procedure many times 
+#to check the type II error 
+set.seed(123)
+V.val.seq <- replicate(1e3, {
+  ep <- rnorm(N)
+  y <- sdl*ep
+for (i in seq_len(N-1)){
+  y[i+1] <- ifelse(y[i]<0, sdr, sdl)*ep[i+1]
+}
+ re <- test.ms(y, sdl.test, sdr.test)
+  #report the upper p values (the largest p-value)
+ re$upper.p.value
+})
+
+hist(V.val.seq)
+mean(V.val.seq > 0.05)
+
+#also check the power
+mean(V.val.seq <= 0.05)
+```
+
+```{r}
+#repeat this procedure many times 
+#to check the type II error 
+#change to a different rule
+#makes the dynamic more complicated (with more hierarchical structure)
+set.seed(123)
+V.val.seq <- replicate(1e3, {
+  ep <- rnorm(N)
+  y <- sdl*ep
+for (i in seq_len(N-1)){
+  #y[i+1] <- ifelse(y[i]<0.5, sdr, sdl)*ep[i+1]
+  y[i+1] <- ifelse(y[i]< runif(1,0,1), sdr, sdl)*ep[i+1]
+}
+ re <- test.ms(y, sdl.test, sdr.test)
+  #report the upper p values (the largest p-value)
+ re$upper.p.value
+})
+
+hist(V.val.seq)
+mean(V.val.seq > 0.05)
+
+#also check the power
+mean(V.val.seq <= 0.05)
+```
+
+We can also make the switching point change in a blocking way. 
+
+```{r}
+set.seed(123)
+num.block <- 10
+sw.loc1 <- seq(0, 2, length.out = num.block)
+sw.loc <- rep(sw.loc1, each = ceiling(N/num.block))[seq_len(N-1)]
+V.val.seq <- replicate(1e3, {
+  ep <- rnorm(N)
+  y <- sdl*ep
+  #make the switching point change in a blocking way
+for (i in seq_len(N-1)){
+  #y[i+1] <- ifelse(y[i]<0.5, sdr, sdl)*ep[i+1]
+  y[i+1] <- ifelse(y[i]< sw.loc[i], sdr, sdl)*ep[i+1]
+}
+  #plotl(y)
+ re <- test.ms(y, sdl.test, sdr.test)
+  #report the upper p values (the largest p-value)
+ re$upper.p.value
+})
+
+hist(V.val.seq)
+mean(V.val.seq > 0.05)
+
+#also check the power
+mean(V.val.seq <= 0.05)
+```
+
+```{r GJR-GARCH}
+set.seed(123)
+#GARCH setup, with only sigma part
+#GARCH(p,0)
+#GARCH(1,1) which is equivalent to ARCH(infty)
+#it is still in S set
+#similar to ARMA(p,q) equivalent with AR(infty) 
+#if the stationarity and invertibility condition are met
+truncate.f <- function(x, a, b){
+  a*(x<=a)+x*(a<x&x<=b)+b*(x>=b)
+}
+
+#truncate.f(2, 0, 1)
+a0 <- 0.1
+a1 <- 0.2
+b1 <- 0.3
+phi <- 2.5
+#since it is a generic test
+#we need the feedback to be significant enough to detect it
+#large phi, small a1 and a2
+V.val.seq <- replicate(1e3, {
+  ep <- rnorm(N)
+  v <- rep(sdl, N)
+  y <- v*ep
+  for (i in seq_len(N-1)){
+    v2 <- a0 + a1*y[i]^2 + b1*v[i]^2 + phi*y[i]^2*(y[i]>=0)
+    v[i+1] <- truncate.f(sqrt(v2), sdl, sdr)
+    y[i+1] <- v[i+1]*ep[i+1]
+  }
+  #plotl(v)
+  #hist(v)
+  #plotl(y)
+  re <- test.ms(y, sdl.test, sdr.test)
+  #report the upper p values (the largest p-value)
+  re$upper.p.value
+})
+
+#to check the sensitivity
+hist(V.val.seq, main = "Underlying rule: GJR-GARCH(1,1)")
+mean(V.val.seq > 0.05)
+
+#also check the power
+mean(V.val.seq <= 0.05)
+```
+
+## Type I error 
+
+```{r mixture}
+#repeat this procedure many times 
+#to check the type I error 
+#set.seed(123)
+#N <- 5e3
+#k <- 12
+# ep <- rt(N, k)/(sqrt(k/(k-2))) #heavy tail
+# #ep <- ep/sd(ep)
+# qqnorm(ep)
+# qqline(ep, col=2)
+V.val.seq <- replicate(1e3, {
+  ep <- rnorm(N)
+  #ep <- sample(c(-1,1), N, replace = TRUE) #change to other distribution
+  #ep <- rt(N, k)/(sqrt(k/(k-2))) #heavy tail
+  #(we cannot replace it to other distributions yet because we need the estimation of higher moment)
+  #ep <- ep/sd(ep)
+  #qqnorm(ep)
+  #qqline(ep, col=2)
+  #var(ep)
+  #hist(ep)
+  #require zero third moment (or a symmetric distribution)
+  #rexp(N, rate = 1) - 1 does not fit here
+  v <- sample(c(sdl,sdr), N, replace = TRUE)
+  #hist(v)
+  y <- v*ep
+  #plotl(y)
+  # A <- y[-1]+y[-N]
+  #non-overlapping group
+   k <- seq_len(N/2)
+   A <- y[2*k-1] + y[2*k]
+  
+  B <- varphi(A)
+  #plotl(B) #it will get large value occasionally
+  m <- length(B)
+  test.stat <- sqrt(m)*mean(B)
+ #test.stat
+ # sdl.test <- sqrt(8*15*sdl^6)
+ # sdr.test <- sqrt(8*15*sdr^6)
+ 2*(1-pSemiGnorm(abs(test.stat), upper = FALSE, 
+           sdl = sdl.test, sdr = sdr.test))
+})
+
+hist(V.val.seq)
+#estimated type I error rate
+mean(V.val.seq < 0.05) 
+#we tend to accept the null hypothesis
+```
+
+
+```{r HMM}
+#repeat this procedure many times 
+#to check the type I error 
+set.seed(123)
+V.val.seq <- replicate(1e3, {
+  ep <- rnorm(N)
+  v <- rep(sdl, N)
+  for (i in seq_len(N-1)){
+    if(v[i]==sdl){
+      v[i+1] <- sample(c(sdl,sdr), 1, prob = c(2/3, 1/3))
+    } else {
+      v[i+1] <- sample(c(sdl,sdr), 1, prob = c(1/3, 2/3))
+    }
+  }
+  #plotl(v)
+  #hist(v)
+  y <- v*ep
+  #plotl(y)
+  #A <- y[-1]+y[-N]
+  k <- seq_len(N/2)
+  A <- y[2*k-1] + y[2*k]
+  B <- varphi(A)
+  #plotl(B)
+  m <- length(B)
+  test.stat <- sqrt(m)*mean(B)
+ #test.stat
+ # sdl.test <- sqrt(8*15*sdl^6)
+ # sdr.test <- sqrt(8*15*sdr^6)
+ 2*(1-pSemiGnorm(abs(test.stat), upper = FALSE, 
+           sdl = sdl.test, sdr = sdr.test))
+})
+
+hist(V.val.seq, main = "Underlying rule: HMM")
+mean(V.val.seq < 0.05) 
+#we tend to accept the null hypothesis
+```
+
+```{r HMM2}
+set.seed(123)
+V.val.seq <- replicate(1e3, {
+  ep <- rnorm(N)
+  v <- rep(sdl, N)
+  for (i in seq_len(N-1)){
+    if(v[i]==sdl){
+      #make the transition probability also change
+      p1 <- runif(1, 0, 1/3)
+      v[i+1] <- sample(c(sdl,sdr), 1, prob = c(1-p1, p1))
+    } else {
+      #make the transition probability also change
+      p2 <- runif(1, 0, 1/3)
+      v[i+1] <- sample(c(sdl,sdr), 1, prob = c(p2, 1-p2))
+    }
+  }
+  #plotl(v)
+  #hist(v)
+  y <- v*ep
+  #plotl(y)
+  A <- y[-1]+y[-N]
+  B <- varphi(A)
+  #plotl(B)
+  m <- length(B)
+  test.stat <- sqrt(m)*mean(B)
+ #test.stat
+ # sdl.test <- sqrt(8*15*sdl^6)
+ # sdr.test <- sqrt(8*15*sdr^6)
+ 2*(1-pSemiGnorm(abs(test.stat), upper = FALSE, 
+           sdl = sdl.test, sdr = sdr.test))
+})
+
+hist(V.val.seq, main = "Underlying rule: HMM, changing transition matrix")
+mean(V.val.seq < 0.05) 
+```
+
+```{r GARCH}
+set.seed(123)
+#GARCH setup, with only sigma part
+#GARCH(p,0)
+#GARCH(1,1) which is equivalent to ARCH(infty)
+#it is still in S set
+#similar to ARMA(p,q) equivalent with AR(infty) 
+#if the stationarity and invertibility condition are met
+truncate.f <- function(x, a, b){
+  a*(x<=a)+x*(a<x&x<=b)+b*(x>=b)
+}
+#truncate.f(2, 0, 1)
+a0 <- 0.1
+a1 <- 0.4
+b1 <- 0.5
+
+V.val.seq <- replicate(1e3, {
+  ep <- rnorm(N)
+  v <- rep(sdl, N)
+  y <- v*ep
+  for (i in seq_len(N-1)){
+    v2 <- a0 + a1*y[i]^2 + b1*v[i]^2
+    v[i+1] <- truncate.f(sqrt(v2), sdl, sdr)
+    y[i+1] <- v[i+1]*ep[i+1]
+  }
+  #plotl(v)
+  #hist(v)
+  #plotl(y)
+  A <- y[-1]+y[-N]
+  B <- varphi(A)
+  #plotl(B)
+  m <- length(B)
+  test.stat <- sqrt(m)*mean(B)
+ #test.stat
+ # sdl.test <- sqrt(8*15*sdl^6)
+ # sdr.test <- sqrt(8*15*sdr^6)
+ 2*(1-pSemiGnorm(abs(test.stat), upper = FALSE, 
+           sdl = sdl.test, sdr = sdr.test))
+})
+
+hist(V.val.seq, main = "Underlying rule: GARCH(1,1)")
+mean(V.val.seq < 0.05) 
+#accept the null hypothesis
+```
+
+## Key advantages
+
+Under the current setup (we are only given sdl and sdr): 
+
+- It is hard for us to directly tell the model structure by directly looking at the dynamic of $Y_i$, 
+- We have not made any additional assumption or got any additional information on the dynamic of $Y_i$, 
+- In classical setup, it is hard to use some traditional statistical tests to make inference because this is a general inference on the *structure* of model (which each structure may still form a infinite dimensional family of models), 
+- However, we are able to perform such test after we introduce the semi-G-structure and further the G-expectation framework. 
+
+A general test of model structure (TMS) gives the first concrete example that, after introducing semi-G-structure, we are able to deal with problems that are hard to handle in classical case. 
+
+## Next direction
+
+Next: 
+
+- consider larger size for each group (currently $n=2$);
+- consider different $\varphi$ (currently $\varphi = x^3$);
+- estimate the sdl and sdr: use the data-driven rule; (or they can be treated as given, if we are under the situation of measurement error and we have some knowledge on the variation of the additive measurement error; or we are in the context of sensitivity analysis.)
+- study the power property: consider $H_a$ (involving G-CLT).
+
+## Estimate sdl and sdr
+
+- use the data-driven rule to select the group size, then use max-mean estimation (we expect a typical degree of volatility clustering); 
+- (or they can be treated as given, if we are under the situation of measurement error and we have some knowledge on the variation of the additive measurement error; or we are in the context of sensitivity analysis.)
+- or we can simply use a 1st (or k-th, k can be given or detected) order HMM to roughly estimate the volatility state (we can show that such estimation allows typical degree of model misspecification, and our goal here is simply to get a sample version of the variance interval; for instance, we can check that whether the estimated volatility interval will be significantly different if using different order of HMM, or different structures of HMM, even consider those with feedback dependence.)
+
+### different rules
+
+- volatility follows some unknown rule 
+- we want to check the structure of this volatility dynamic 
+- (different from our previous work: we also assume the rule itself may change over time in an unknown way)
+- (but here our logic here is that after considering different layers of structures, the volatility dynamic can be approximated by a fixed but unknown one, then the uncertainty here is about the structure of such kind of dynamic)
+- It is hard to perform such kind of distinguishing task in classical setup, 
+- We are able to do such of kind of distinguishing task after introducing the semi-G-structure (and further the G-expectation framework). 
+
+```{r}
+set.seed(123)
+ep <- rnorm(N)
+y1 <- y2 <- y3 <- sdl*ep
+
+#different rules 
+
+for (i in seq_len(N-1)){
+  y1[i+1] <- ifelse(y1[i]>0, sdr, sdl)*ep[i+1]
+}
+
+for (i in seq_len(N-1)){
+  y2[i+1] <- ifelse(y2[i]<0, sdr, sdl)*ep[i+1]
+}
+v <- sample(c(sdl,sdr), N, replace = TRUE)
+  
+#hist(v)
+y3 <- v*ep
+
+y.mat <- cbind(y1,y2,y3)
+plotl(y1)
+hist(y1)
+
+plotl(y2)
+hist(y2)
+
+plotl(y3)
+hist(y3)
+#they all look very similar to each other
+```
+
+```{r}
+A.mat <- apply(y.mat, 2, function(x) x[-1]+x[-N])
+#dim(A.mat)
+#A <- y1[-1]+y1[-N]
+#plot(A.mat[,1])
+for (j in seq_len(ncol(A.mat))){
+ plot(A.mat[,j], type = "l") 
+ plot(A.mat[,j]^2, type = "l") 
+}
+```
+
+### gr.size.choose and max-mean 
+
+(less assumption on the dynamic of $\sigma$.)
+
+```{r}
+varphi <- function(x) x^3
+B <- varphi(A)
+plotl(B)
+hist(B)
+```
+
+```{r}
+m <- length(B)
+test.stat <- sqrt(m)*mean(B)
+test.stat
+
+alpha <- 0.05
+sdl.test <- sqrt(8*15*sdl^6)
+sdr.test <- sqrt(8*15*sdr^6)
+
+#under H0, the limiting distribution should be semi-G-normal
+
+crit.val <- qSemiGnorm(1-alpha/2, 
+                   sdl = sdl.test, 
+                   sdr = sdr.test, 
+                   upper = FALSE)
+crit.val
+abs(test.stat) > crit.val
+#to compare
+# qGnorm(1-alpha/2, 
+#                    sdl = sdl.test, 
+#                    sdr = sdr.test, 
+#                    upper = FALSE)
+
+#it is quite small
+2*(1-pSemiGnorm(abs(test.stat), upper = FALSE, 
+           sdl = sdl.test, sdr = sdr.test))
+#abs is important
+
+#equivalently
+test.stat1 <- test.stat/sdr.test
+sdl.test1 <- (sdl/sdr)^3
+sdr.test1 <- 1
+#compute the two-sided V-value
+2*(1-pSemiGnorm(abs(test.stat1), upper = FALSE, 
+           sdl = sdl.test1, sdr = sdr.test1))
+```
+
+```{r}
+#paste the code from first try
+#check the dynamic of B
+
+```
+
+```{r}
+#choose.gr.size 
+
+```
+
+
+
+
+
+
+
+
