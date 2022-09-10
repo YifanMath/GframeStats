@@ -37,8 +37,6 @@
 
 \maketitle
 
-This document is mainly written to be discussed with Prof.~Kulperger and Prof.~Yu. This is also highly related to our joint work with Prof.~Defei Zhang in the time series in the $G$-expectation framework. 
-
 \setkeys{Gin}{height=0.6\linewidth}
 
 <<include=FALSE>>=
