@@ -1,5 +1,5 @@
 # GframeStats
 
-R codes for statistical methods under the G-expectation framework. 
+R codes for my Ph.D. thesis "The statistical roles of the G-expectation framework: the semi-G-structure as a stepping stone". 
 
 The folders are named according to my Ph.D. thesis (more details will be included later). 
