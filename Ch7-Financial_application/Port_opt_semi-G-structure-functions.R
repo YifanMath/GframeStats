@@ -27,7 +27,7 @@ A.f <- function(sd.mat, rho.intvl, par.weight, i=1){
     return(a*C.l+(1-a)*C.r)
   } 
   if (i==2){
-    return((1-a/2)*C.l+(3/2*a-1)*C.r)
+    return((3/2*a-1)*C.l+(1-a/2)*C.r)
   }
 }
 
