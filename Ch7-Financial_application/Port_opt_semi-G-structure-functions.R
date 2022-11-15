@@ -27,6 +27,9 @@ A.f <- function(sd.mat, rho.intvl, par.weight, i=1){
     return(a*C.l+(1-a)*C.r)
   } 
   if (i==2){
+    #a is the weight before center
+    #to be consistent with the thesis
+    #a*Center + (1-a)*Amb
     return((3/2*a-1)*C.l+(1-a/2)*C.r)
   }
 }
