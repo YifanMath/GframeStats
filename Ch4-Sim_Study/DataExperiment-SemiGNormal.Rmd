@@ -19,7 +19,6 @@ source("Basic-setup.R")
 source("DataExperiment-SemiGNormal-Pre.R")
 source("GframeStatsPoint-full.R")
 source("GframeIntvl.R")
-source("functions-choose-gr-size.R")
 ```
 
 # 2-Vol-RS Ex (short seq)
